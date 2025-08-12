@@ -9,14 +9,23 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.amigo.app",
+      "infoPlist": {
+        "NSContactsUsageDescription": "This app needs access to your contacts to find friends who are using Awaaz."
+      }
     },
     "android": {
+      "package": "com.amigo.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.READ_CONTACTS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -37,6 +46,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "developmentClient": {
+      "silenceLaunchWarnings": false
     }
   }
 }

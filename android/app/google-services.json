@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "562549249203",
+    "project_id": "amigo-ec5be",
+    "storage_bucket": "amigo-ec5be.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:562549249203:android:7afd17d0743e3fc2850cc6",
+        "android_client_info": {
+          "package_name": "com.amigo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCRC0fVjrJ_LydbKmTKk5GAiXA3V4jIvFg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
