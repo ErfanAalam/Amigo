@@ -60,8 +60,8 @@ const lightTheme: Theme = {
     textSecondary: '#666666',
     textTertiary: '#999999',
     
-    primary: '#a8edea',
-    primaryVariant: '#0056CC',
+    primary: '#4A90E2',
+    primaryVariant: '#357ABD',
     onPrimary: '#ffffff',
     
     secondary: '#5856D6',
@@ -80,7 +80,7 @@ const lightTheme: Theme = {
     shadow: '#000000',
     
     inputBackground: '#f8f9fa',
-    inputBorder: '#e9ecef',
+    inputBorder: '#e1e5e9',
     inputText: '#1a1a1a',
     inputPlaceholder: '#999999',
   },
@@ -97,8 +97,8 @@ const darkTheme: Theme = {
     textSecondary: '#b0b0b0',
     textTertiary: '#808080',
     
-    primary: '#fed6e3',
-    primaryVariant: '#0056CC',
+    primary: '#5B9BD5',
+    primaryVariant: '#4A7C59',
     onPrimary: '#ffffff',
     
     secondary: '#5E5CE6',

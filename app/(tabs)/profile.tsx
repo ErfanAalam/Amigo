@@ -106,12 +106,12 @@ export default function Profile() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      // ['#667eea', '#764ba2'],
+      ['#667eea', '#764ba2'],
       // ['#f093fb', '#f5576c'],
       // ['#4facfe', '#00f2fe'],
       // ['#43e97b', '#38f9d7'],
       // ['#fa709a', '#fee140'],
-      ['#a8edea', '#fed6e3'],
+      // ['#a8edea', '#fed6e3'],
       // ['#ffecd2', '#fcb69f'],
       // ['#ff8a80', '#ff7043'],
     ];
@@ -164,7 +164,7 @@ export default function Profile() {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               >
-                <Text style={[styles.modernAvatarText, { color: '#000' }]}>
+                <Text style={[styles.modernAvatarText, { color: '#ffffff' }]}>
                   {userData?.firstName?.charAt(0)?.toUpperCase() || 'U'}
                 </Text>
               </LinearGradient>
@@ -173,7 +173,7 @@ export default function Profile() {
               )}
             </View>
             
-            <Text style={[styles.modernUserName, { color: theme.colors.text }]}>
+            <Text style={[styles.modernUserName, { color: '#FFFFFF'}]}>
               {userData?.displayName || 'User'}
             </Text>
             <View style={styles.statusContainer}>
@@ -181,7 +181,7 @@ export default function Profile() {
                 styles.statusDot, 
                 { backgroundColor: userData?.isOnline ? '#00d4aa' : '#ff6b6b' }
               ]} />
-              <Text style={[styles.statusText, { color: theme.colors.text }]}>
+              <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
                 {userData?.isOnline ? 'Online' : 'Offline'}
               </Text>
             </View>

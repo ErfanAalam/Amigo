@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.amigo.app",
       "infoPlist": {
-        "NSContactsUsageDescription": "This app needs access to your contacts to find friends who are using Awaaz."
+        "NSContactsUsageDescription": "This app needs access to your contacts to find friends who are using Awaaz.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice notes."
       }
     },
     "android": {
@@ -24,7 +25,11 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "android.permission.READ_CONTACTS"
+        "android.permission.READ_CONTACTS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.MANAGE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -41,6 +46,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Amigo to access your microphone to record voice notes."
         }
       ]
     ],

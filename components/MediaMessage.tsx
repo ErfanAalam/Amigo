@@ -1,0 +1,339 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import { Image } from 'expo-image';
+import * as MediaLibrary from 'expo-media-library';
+import React, { useState } from 'react';
+import {
+  Alert,
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useTheme } from '../context/ThemeContext';
+import { Message } from '../types/MessageTypes';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+interface MediaMessageProps {
+  message: Message;
+  isOwnMessage: boolean;
+  onMediaPress?: () => void;
+}
+
+export default function MediaMessage({ message, isOwnMessage, onMediaPress }: MediaMessageProps) {
+  const { theme } = useTheme();
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackPosition, setPlaybackPosition] = useState(0);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleImagePress = () => {
+    if (onMediaPress) {
+      onMediaPress();
+    }
+  };
+
+  const handleVideoPress = () => {
+    if (onMediaPress) {
+      onMediaPress();
+    }
+  };
+
+  const handleDocumentPress = async () => {
+    try {
+      // Check if we have permission to save files
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Storage permission is required to save documents.');
+        return;
+      }
+
+      // Save document to media library
+      await MediaLibrary.saveToLibraryAsync(message.mediaUrl!);
+      Alert.alert('Success', 'Document saved to your device');
+    } catch (error) {
+      console.error('Error saving document:', error);
+      Alert.alert('Error', 'Failed to save document');
+    }
+  };
+
+  const handleVoicePlay = async () => {
+    if (!message.mediaUrl) return;
+
+    try {
+      if (sound) {
+        if (isPlaying) {
+          await sound.stopAsync();
+          setIsPlaying(false);
+        } else {
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      } else {
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: message.mediaUrl },
+          { shouldPlay: true }
+        );
+        setSound(newSound);
+        setIsPlaying(true);
+
+        newSound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded) {
+            setPlaybackPosition(status.positionMillis / 1000);
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPlaybackPosition(0);
+            }
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error playing voice note:', error);
+      Alert.alert('Error', 'Failed to play voice note');
+    }
+  };
+
+  const renderImageMessage = () => (
+    <TouchableOpacity onPress={handleImagePress} style={styles.imageContainer}>
+      <Image
+        source={{ uri: message.mediaUrl }}
+        style={styles.image}
+        contentFit="cover"
+        transition={200}
+      />
+      {message.text && (
+        <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
+          {message.text}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+
+  const renderVideoMessage = () => (
+    <TouchableOpacity onPress={handleVideoPress} style={styles.videoContainer}>
+      <View style={[styles.videoThumbnail, { backgroundColor: theme.colors.border }]}>
+        <Ionicons name="play-circle" size={40} color={theme.colors.primary} />
+        {message.mediaDuration && (
+          <Text style={[styles.videoDuration, { color: theme.colors.text }]}>
+            {formatDuration(message.mediaDuration)}
+          </Text>
+        )}
+      </View>
+      {message.text && (
+        <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
+          {message.text}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+
+  const renderDocumentMessage = () => (
+    <TouchableOpacity onPress={handleDocumentPress} style={styles.documentContainer}>
+      <View style={[styles.documentIcon, { backgroundColor: theme.colors.primary }]}>
+        <Ionicons name="document" size={20} color="#ffffff" />
+      </View>
+      <View style={styles.documentInfo}>
+        <Text style={[styles.documentName, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
+          {message.mediaName || 'Document'}
+        </Text>
+        {message.mediaSize && (
+          <Text style={[styles.documentSize, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
+            {formatFileSize(message.mediaSize)}
+          </Text>
+        )}
+      </View>
+      {/* <Ionicons name="share-outline" size={20} color={theme.colors.primary} /> */}
+    </TouchableOpacity>
+  );
+
+  const renderVoiceMessage = () => (
+    <View style={styles.voiceContainer}>
+      <TouchableOpacity onPress={handleVoicePlay} style={styles.voicePlayButton}>
+        <Ionicons 
+          name={isPlaying ? "pause" : "play"} 
+          size={18} 
+          color={isOwnMessage ? '#ffffff' : theme.colors.primary} 
+        />
+      </TouchableOpacity>
+      
+      <View style={styles.voiceInfo}>
+        <View style={styles.voiceProgressBar}>
+          <View 
+            style={[
+              styles.voiceProgress, 
+              { 
+                width: `${(playbackPosition / (message.mediaDuration || 1)) * 100}%`,
+                backgroundColor: isOwnMessage ? '#ffffff' : theme.colors.primary 
+              }
+            ]} 
+          />
+        </View>
+        <Text style={[styles.voiceDuration, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
+          {formatDuration(message.mediaDuration || 0)}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const renderMediaContent = () => {
+    switch (message.messageType) {
+      case 'image':
+        return renderImageMessage();
+      case 'video':
+        return renderVideoMessage();
+      case 'document':
+        return renderDocumentMessage();
+      case 'voice':
+        return renderVoiceMessage();
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {renderMediaContent()}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  imageContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  image: {
+    width: Math.min(screenWidth * 0.85, 320),
+    height: Math.min(screenWidth * 0.85, 320) * 0.45, // Much shorter height for wider appearance
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  mediaCaption: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  videoContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  videoThumbnail: {
+    width: Math.min(screenWidth * 0.85, 320),
+    height: Math.min(screenWidth * 0.85, 320) * 0.45, // Much shorter height for wider appearance
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  videoDuration: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    fontSize: 11,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    color: '#ffffff',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  documentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 14,
+    marginBottom: 6,
+    minWidth: 220,
+    maxWidth: Math.min(screenWidth * 0.85, 320),
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  documentIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  documentInfo: {
+    flex: 1,
+  },
+  documentName: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 1,
+  },
+  documentSize: {
+    fontSize: 10,
+  },
+  voiceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 14,
+    marginBottom: 6,
+    minWidth: 220,
+    maxWidth: Math.min(screenWidth * 0.85, 320),
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  voicePlayButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  voiceInfo: {
+    flex: 1,
+  },
+  voiceProgressBar: {
+    height: 3,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 2,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  voiceProgress: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  voiceDuration: {
+    fontSize: 10,
+  },
+});

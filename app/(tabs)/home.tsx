@@ -23,6 +23,7 @@ interface ChatUser {
   name: string;
   phoneNumber: string;
   lastMessage: string;
+  lastMessageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice';
   lastMessageTime: any;
   unreadCount: number;
 }
@@ -67,6 +68,7 @@ export default function Home() {
           
           // Use the lastMessage and lastMessageTime from chat metadata
           const lastMessage = chatData.lastMessage || '';
+          const lastMessageType = chatData.lastMessageType || 'text';
           const lastMessageTime = chatData.lastMessageTime || null;
 
           // Get user details from users collection
@@ -83,6 +85,7 @@ export default function Home() {
                 name: userData?.displayName || otherUserName,
                 phoneNumber: userData?.phoneNumber || '',
                 lastMessage,
+                lastMessageType,
                 lastMessageTime,
                 unreadCount: 0, // TODO: Implement unread count
               });
@@ -95,6 +98,7 @@ export default function Home() {
               name: otherUserName,
               phoneNumber: '',
               lastMessage,
+              lastMessageType,
               lastMessageTime,
               unreadCount: 0,
             });
@@ -157,6 +161,7 @@ export default function Home() {
               
               // Use the lastMessage and lastMessageTime from chat metadata
               const lastMessage = chatData.lastMessage || '';
+              const lastMessageType = chatData.lastMessageType || 'text';
               const lastMessageTime = chatData.lastMessageTime || null;
 
               // Get user details from users collection
@@ -173,6 +178,7 @@ export default function Home() {
                     name: userData?.displayName || otherUserName,
                     phoneNumber: userData?.phoneNumber || '',
                     lastMessage,
+                    lastMessageType,
                     lastMessageTime,
                     unreadCount: 0, // TODO: Implement unread count
                   });
@@ -185,6 +191,7 @@ export default function Home() {
                   name: otherUserName,
                   phoneNumber: '',
                   lastMessage,
+                  lastMessageType,
                   lastMessageTime,
                   unreadCount: 0,
                 });
@@ -297,6 +304,29 @@ export default function Home() {
     }
   };
 
+  const getLastMessageDisplay = (message: string, messageType?: string) => {
+    if (!message) return 'No messages yet';
+    
+    if (messageType && messageType !== 'text') {
+      switch (messageType) {
+        case 'image':
+          return '📷 Image';
+        case 'video':
+          return '🎥 Video';
+        case 'audio':
+          return '🎵 Audio';
+        case 'document':
+          return '📄 Document';
+        case 'voice':
+          return '🎤 Voice Note';
+        default:
+          return message;
+      }
+    }
+    
+    return message;
+  };
+
   const getAvatarGradient = (name: string) => {
     const gradients = [
       ['#667eea', '#764ba2'],
@@ -348,7 +378,7 @@ export default function Home() {
             style={[styles.modernLastMessage, { color: theme.colors.textSecondary }]}
             numberOfLines={1}
           >
-            {item.lastMessage || 'No messages yet'}
+            {getLastMessageDisplay(item.lastMessage, item.lastMessageType)}
           </Text>
         </View>
         

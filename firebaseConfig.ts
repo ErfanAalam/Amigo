@@ -1,6 +1,7 @@
 import app from '@react-native-firebase/app';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import storage from '@react-native-firebase/storage';
 
 // Firebase configuration object
 const firebaseConfig = {
@@ -21,6 +22,7 @@ if (app.apps.length === 0) {
 // Export Firebase services
 export const firebaseAuth = auth();
 export const firebaseFirestore = firestore();
+export const firebaseStorage = storage();
 export const FieldValue = firestore.FieldValue;
 
 // Export the config for potential use elsewhere
