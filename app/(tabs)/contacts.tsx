@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Image,
     RefreshControl,
     StyleSheet,
     Text,
@@ -27,6 +28,7 @@ interface ContactUser {
   phoneNumber: string;
   isOnline: boolean;
   lastSeen: any;
+  profileImageUrl?: string;
 }
 
 export default function ContactsScreen() {
@@ -197,7 +199,8 @@ export default function ContactsScreen() {
               displayName: matchedUser.displayName || contact.name,
               phoneNumber: matchedUser.phoneNumber,
               isOnline: matchedUser.isOnline || false,
-              lastSeen: matchedUser.lastSeen
+              lastSeen: matchedUser.lastSeen,
+              profileImageUrl: matchedUser.profileImageUrl
             });
           }
         });
@@ -265,16 +268,22 @@ export default function ContactsScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.contactAvatarContainer}>
-          <LinearGradient
-            colors={[color1, color2]}
-            style={styles.contactAvatar}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Text style={styles.contactAvatarText}>
-              {item.firstName?.charAt(0)?.toUpperCase() || item.displayName?.charAt(0)?.toUpperCase() || 'U'}
-            </Text>
-          </LinearGradient>
+          {item.profileImageUrl ? (
+            <View style={styles.profileImageContainer}>
+              <Image source={{ uri: item.profileImageUrl }} style={styles.profileImage} />
+            </View>
+          ) : (
+            <LinearGradient
+              colors={[color1, color2]}
+              style={styles.contactAvatar}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.contactAvatarText}>
+                {item.firstName?.charAt(0)?.toUpperCase() || item.displayName?.charAt(0)?.toUpperCase() || 'U'}
+              </Text>
+            </LinearGradient>
+          )}
           {item.isOnline && (
             <View style={[styles.onlineIndicator, { borderColor: theme.colors.card }]} />
           )}
@@ -639,6 +648,21 @@ const styles = StyleSheet.create({
   contactAvatarContainer: {
     position: 'relative',
     marginRight: 12,
+  },
+  profileImageContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
   },
   contactAvatar: {
     width: 48,

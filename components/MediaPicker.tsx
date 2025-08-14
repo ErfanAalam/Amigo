@@ -79,13 +79,38 @@ export default function MediaPicker({
       console.log('Image picker result:', result);
       
       if (!result.canceled && result.assets.length > 0) {
-        const newMediaFiles: MediaFile[] = result.assets.map(asset => ({
-          uri: asset.uri,
-          name: asset.fileName || `media_${Date.now()}_${Math.random()}`,
-          size: asset.fileSize || 0,
-          type: asset.type || 'image',
-          duration: asset.duration || 0,
-        }));
+        const newMediaFiles: MediaFile[] = result.assets.map(asset => {
+          // Debug logging
+          console.log('ImagePicker asset:', {
+            type: asset.type,
+            fileName: asset.fileName,
+            fileSize: asset.fileSize
+          });
+          
+          // Determine correct MIME type
+          let mimeType: string;
+          if (asset.type === 'image') {
+            mimeType = 'image/jpeg'; // Default to JPEG for images
+            console.log('🖼️ Converting image to MIME type:', mimeType);
+          } else if (asset.type === 'video') {
+            mimeType = 'video/mp4'; // Default to MP4 for videos
+            console.log('🎥 Converting video to MIME type:', mimeType);
+          } else {
+            mimeType = asset.type || 'image/jpeg'; // Fallback
+            console.log('❓ Using fallback MIME type:', mimeType);
+          }
+          
+          const mediaFile = {
+            uri: asset.uri,
+            name: asset.fileName || `media_${Date.now()}_${Math.random()}`,
+            size: asset.fileSize || 0,
+            type: mimeType,
+            duration: asset.duration || 0,
+          };
+          
+          console.log('Created MediaFile:', mediaFile);
+          return mediaFile;
+        });
         
         console.log('New media files:', newMediaFiles);
         setSelectedMedia(prev => [...prev, ...newMediaFiles]);

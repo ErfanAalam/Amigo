@@ -13,7 +13,9 @@
       "bundleIdentifier": "com.amigo.app",
       "infoPlist": {
         "NSContactsUsageDescription": "This app needs access to your contacts to find friends who are using Awaaz.",
-        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice notes."
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice notes.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to save and share media files.",
+        "NSPhotoLibraryAddUsageDescription": "This app needs access to save media files to your photo library."
       }
     },
     "android": {

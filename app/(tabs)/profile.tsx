@@ -2,17 +2,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import storage from '@react-native-firebase/storage';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { useTheme } from '../../context/ThemeContext';
 
@@ -25,6 +28,7 @@ interface UserData {
   createdAt: any;
   isOnline: boolean;
   lastSeen: any;
+  profileImageUrl?: string;
 }
 
 export default function Profile() {
@@ -32,6 +36,8 @@ export default function Profile() {
   const { theme, isDark, toggleTheme } = useTheme();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -40,7 +46,9 @@ export default function Profile() {
         if (user) {
           const userDoc = await firestore().collection('users').doc(user.uid).get();
           if (userDoc.exists) {
-            setUserData(userDoc.data() as UserData);
+            const data = userDoc.data() as UserData;
+            setUserData(data);
+            setProfileImage(data.profileImageUrl || null);
           }
         }
       } catch (error) {
@@ -52,6 +60,77 @@ export default function Profile() {
 
     fetchUserData();
   }, []);
+
+  const requestImagePermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Required',
+        'Sorry, we need camera roll permissions to make this work!',
+        [{ text: 'OK' }]
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const pickImage = async () => {
+    try {
+      const hasPermission = await requestImagePermission();
+      if (!hasPermission) return;
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadProfileImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const uploadProfileImage = async (imageUri: string) => {
+    const user = auth().currentUser;
+    if (!user) return;
+
+    setUploadingImage(true);
+    try {
+      const fileName = `profile_images/${user.uid}_${Date.now()}.jpg`;
+      
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      
+      // Upload to Firebase Storage
+      const storageRef = storage().ref().child(fileName);
+      await storageRef.put(blob);
+      
+      // Get download URL
+      const downloadURL = await storageRef.getDownloadURL();
+      
+      // Update Firestore
+      await firestore().collection('users').doc(user.uid).update({
+        profileImageUrl: downloadURL,
+      });
+      
+      // Update local state
+      setProfileImage(downloadURL);
+      setUserData(prev => prev ? { ...prev, profileImageUrl: downloadURL } : null);
+      
+      Alert.alert('Success', 'Profile image updated successfully!');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const handleLogout = async () => {
     Alert.alert(
@@ -157,21 +236,45 @@ export default function Profile() {
           </TouchableOpacity>
 
           <View style={styles.profileSection}>
-            <View style={styles.modernAvatarContainer}>
-              <LinearGradient
-                colors={[color1, color2]}
-                style={styles.modernAvatar}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Text style={[styles.modernAvatarText, { color: '#ffffff' }]}>
-                  {userData?.firstName?.charAt(0)?.toUpperCase() || 'U'}
-                </Text>
-              </LinearGradient>
+            <TouchableOpacity 
+              style={styles.modernAvatarContainer}
+              onPress={pickImage}
+              disabled={uploadingImage}
+              activeOpacity={0.8}
+            >
+              {profileImage ? (
+                <View style={styles.profileImageContainer}>
+                  <Image source={{ uri: profileImage }} style={styles.profileImage} />
+                  {uploadingImage && (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    </View>
+                  )}
+                  <View style={styles.uploadIconOverlay}>
+                    <Ionicons name="camera" size={20} color="#ffffff" />
+                  </View>
+                </View>
+              ) : (
+                <LinearGradient
+                  colors={[color1, color2]}
+                  style={styles.modernAvatar}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Text style={[styles.modernAvatarText, { color: '#ffffff' }]}>
+                    {userData?.firstName?.charAt(0)?.toUpperCase() || 'U'}
+                  </Text>
+                  {uploadingImage && (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    </View>
+                  )}
+                </LinearGradient>
+              )}
               {userData?.isOnline && (
                 <View style={styles.onlineStatusIndicator} />
               )}
-            </View>
+            </TouchableOpacity>
             
             <Text style={[styles.modernUserName, { color: '#FFFFFF'}]}>
               {userData?.displayName || 'User'}
@@ -185,6 +288,29 @@ export default function Profile() {
                 {userData?.isOnline ? 'Online' : 'Offline'}
               </Text>
             </View>
+            
+            <TouchableOpacity 
+              style={styles.uploadButton}
+              onPress={pickImage}
+              disabled={uploadingImage}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}
+                style={styles.uploadButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons 
+                  name={uploadingImage ? "hourglass" : "camera"} 
+                  size={16} 
+                  color="#ffffff" 
+                />
+                <Text style={styles.uploadButtonText}>
+                  {uploadingImage ? 'Uploading...' : 'Upload Photo'}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </LinearGradient>
       </View>
@@ -362,6 +488,43 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 10,
   },
+  profileImageContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+  },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 50,
+  },
+  uploadIconOverlay: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   modernAvatarText: {
     fontSize: 36,
     fontWeight: '800',
@@ -392,6 +555,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
+    marginBottom: 16,
   },
   statusDot: {
     width: 8,
@@ -403,6 +567,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  uploadButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  uploadButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  uploadButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // Modern info cards

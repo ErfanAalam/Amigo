@@ -18,13 +18,17 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
 import MediaPicker from '../components/MediaPicker';
+import PDFViewer from '../components/PDFViewer';
+import VideoPlayer from '../components/VideoPlayer';
 import VoiceRecorder from '../components/VoiceRecorder';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseStorage, firebaseFirestore as firestore } from '../firebaseConfig';
 import { MediaFile, Message, VoiceNote } from '../types/MessageTypes';
+import { MediaDownloader } from '../utils/MediaDownloader';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -49,6 +53,11 @@ export default function ChatPage() {
   const [uploadingMessage, setUploadingMessage] = useState<string>('');
   const [showFullScreenMedia, setShowFullScreenMedia] = useState(false);
   const [fullScreenMedia, setFullScreenMedia] = useState<{uri: string, type: string, name?: string} | null>(null);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [showPDFViewer, setShowPDFViewer] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<Message | null>(null);
+  const [receiverProfileImage, setReceiverProfileImage] = useState<string | null>(null);
   
   const flatListRef = useRef<FlatList>(null);
 
@@ -63,16 +72,37 @@ export default function ChatPage() {
     }
   }, [messages]);
 
-  // Mark messages as read when screen is focused
+  // Fetch receiver's profile image
+  const fetchReceiverProfileImage = useCallback(async () => {
+    if (!userId) return;
+    
+    try {
+      const userDoc = await firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        setReceiverProfileImage(userData?.profileImageUrl || null);
+      }
+    } catch (error) {
+      console.error('Error fetching receiver profile image:', error);
+    }
+  }, [userId]);
+
+  // Initialize MediaDownloader and mark messages as read when screen is focused
   useFocusEffect(
     useCallback(() => {
+      // Initialize MediaDownloader
+      MediaDownloader.loadDownloadStates();
+      
+      // Fetch receiver's profile image
+      fetchReceiverProfileImage();
+      
       if (chatId && userData?.uid) {
         markMessagesAsRead();
       }
       return () => {
         // Cleanup when screen loses focus
       };
-    }, [chatId, userData?.uid])
+    }, [chatId, userData?.uid, fetchReceiverProfileImage])
   );
 
   const markMessagesAsRead = async () => {
@@ -209,22 +239,36 @@ export default function ChatPage() {
       const uploadPromises = mediaFiles.map(async (mediaFile) => {
         const mediaUrl = await uploadMediaToStorage(mediaFile);
         
+        // Debug logging
+        console.log('MediaFile details:', {
+          name: mediaFile.name,
+          type: mediaFile.type,
+          size: mediaFile.size
+        });
+        
         // Determine message type
         let messageType: Message['messageType'] = 'document';
         if (mediaFile.type.startsWith('image/')) {
           messageType = 'image';
+          console.log('✅ Detected as IMAGE');
         } else if (mediaFile.type.startsWith('video/')) {
           messageType = 'video';
+          console.log('✅ Detected as VIDEO');
         } else if (mediaFile.type.startsWith('audio/')) {
           messageType = 'audio';
+          console.log('✅ Detected as AUDIO');
+        } else {
+          console.log('❌ Defaulting to DOCUMENT, type was:', mediaFile.type);
         }
+
+        console.log('Final messageType:', messageType);
 
         return {
           messageType,
           mediaUrl,
           mediaName: mediaFile.name,
-          mediaSize: mediaFile.size,
-          mediaDuration: mediaFile.duration,
+          mediaSize: mediaFile.size || 0,
+          ...(mediaFile.duration && { mediaDuration: mediaFile.duration }),
         };
       });
 
@@ -232,12 +276,19 @@ export default function ChatPage() {
 
       // Add all messages to chat
       const messagePromises = uploadedMedia.map(async (mediaData) => {
+        // Clean the data to remove any undefined values
+        const cleanMediaData = Object.fromEntries(
+          Object.entries(mediaData).filter(([_, value]) => value !== undefined)
+        );
+        
+        console.log('Clean media data for Firebase:', cleanMediaData);
+        
         return firestore
           .collection('chats')
           .doc(chatId)
           .collection('messages')
           .add({
-            ...mediaData,
+            ...cleanMediaData,
             senderId: userData.uid,
             senderName: userData.displayName || 'Unknown',
             timestamp: FieldValue.serverTimestamp(),
@@ -432,13 +483,45 @@ export default function ChatPage() {
   };
 
   const handleMediaPress = (message: Message) => {
-    if (message.mediaUrl && (message.messageType === 'image' || message.messageType === 'video')) {
-      setFullScreenMedia({
-        uri: message.mediaUrl,
-        type: message.messageType,
-        name: message.mediaName
-      });
-      setShowFullScreenMedia(true);
+    if (!message.mediaUrl) return;
+
+    setSelectedMedia(message);
+
+    switch (message.messageType) {
+      case 'image':
+        // For images, show full screen preview immediately
+        setFullScreenMedia({
+          uri: message.mediaUrl,
+          type: message.messageType,
+          name: message.mediaName
+        });
+        setShowFullScreenMedia(true);
+        break;
+      case 'video':
+        // For videos, show video player immediately
+        setShowVideoPlayer(true);
+        break;
+      case 'audio':
+      case 'voice':
+        // Audio is handled by MediaMessage component
+        break;
+      default:
+        // Handle other media types
+        break;
+    }
+  };
+
+  const handleDocumentPress = (message: Message) => {
+    if (!message.mediaUrl) return;
+
+    setSelectedMedia(message);
+
+    // For documents, check if it's a PDF
+    if (message.mediaName?.toLowerCase().endsWith('.pdf')) {
+      setShowDocumentViewer(false);
+      setShowPDFViewer(true);
+    } else {
+      setShowDocumentViewer(true);
     }
   };
 
@@ -451,8 +534,13 @@ export default function ChatPage() {
         styles.modernMessageContainer,
         isOwnMessage ? styles.ownMessage : styles.otherMessage
       ]}>
-        {!isOwnMessage && (
+        {/* {!isOwnMessage && (
           <View style={styles.senderAvatarContainer}>
+             {receiverProfileImage ? (
+                  <View style={styles.headerProfileImageContainer}>
+                    <Image source={{ uri: receiverProfileImage }} style={styles.headerProfileImage} />
+                  </View>
+                ) : (
             <LinearGradient
               colors={[color1, color2]}
               style={styles.senderAvatar}
@@ -463,8 +551,9 @@ export default function ChatPage() {
                 {item.senderName?.charAt(0)?.toUpperCase() || 'U'}
               </Text>
             </LinearGradient>
+            )}
           </View>
-        )}
+        )} */}
         
         {isOwnMessage ? (
           <LinearGradient
@@ -482,6 +571,7 @@ export default function ChatPage() {
                 message={item} 
                 isOwnMessage={isOwnMessage}
                 onMediaPress={() => handleMediaPress(item)}
+                onDocumentPress={() => handleDocumentPress(item)}
               />
             ) : (
               <Text style={[
@@ -534,6 +624,7 @@ export default function ChatPage() {
                 message={item} 
                 isOwnMessage={isOwnMessage}
                 onMediaPress={() => handleMediaPress(item)}
+                onDocumentPress={() => handleDocumentPress(item)}
               />
             ) : (
               <Text style={[
@@ -606,16 +697,22 @@ export default function ChatPage() {
             
             <View style={styles.modernHeaderInfo}>
               <View style={styles.chatUserAvatar}>
-                <LinearGradient
-                  colors={[headerColor1, headerColor2]} 
-                  style={styles.headerAvatarGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <Text style={[styles.headerAvatarText, { color: '#000' }]}>
-                    {userName?.charAt(0)?.toUpperCase() || 'U'}
-                  </Text>
-                </LinearGradient>
+                {receiverProfileImage ? (
+                  <View style={styles.headerProfileImageContainer}>
+                    <Image source={{ uri: receiverProfileImage }} style={styles.headerProfileImage} />
+                  </View>
+                ) : (
+                  <LinearGradient
+                    colors={[headerColor1, headerColor2]} 
+                    style={styles.headerAvatarGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <Text style={[styles.headerAvatarText, { color: '#000' }]}>
+                      {userName?.charAt(0)?.toUpperCase() || 'U'}
+                    </Text>
+                  </LinearGradient>
+                )}
               </View>
               <View style={styles.headerTextContainer}>
                 <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
@@ -816,17 +913,69 @@ export default function ChatPage() {
                   style={styles.fullScreenImage}
                   contentFit="contain"
                 />
-              ) : fullScreenMedia.type === 'video' ? (
-                <View style={styles.fullScreenVideoContainer}>
-                  <Ionicons name="play-circle" size={80} color="#ffffff" />
-                  <Text style={styles.fullScreenVideoText}>Video Player Coming Soon</Text>
-                </View>
               ) : null}
               
               {fullScreenMedia.name && (
                 <Text style={styles.fullScreenMediaName}>{fullScreenMedia.name}</Text>
               )}
             </>
+          )}
+        </View>
+      </Modal>
+
+      {/* Video Player Modal */}
+      <Modal
+        visible={showVideoPlayer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowVideoPlayer(false)}
+      >
+        <View style={styles.fullScreenModal}>
+          {selectedMedia && (
+            <VideoPlayer
+              uri={selectedMedia.mediaUrl!}
+              onClose={() => setShowVideoPlayer(false)}
+              isFullScreen={true}
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Document Viewer Modal */}
+      <Modal
+        visible={showDocumentViewer}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDocumentViewer(false)}
+      >
+        <View style={styles.documentModal}>
+          {selectedMedia && (
+            <DocumentViewer
+              mediaUrl={selectedMedia.mediaUrl!}
+              fileName={selectedMedia.mediaName || 'Document'}
+              mediaType={selectedMedia.messageType === 'document' ? 'application/octet-stream' : 'image/jpeg'}
+              mediaSize={selectedMedia.mediaSize}
+              onClose={() => setShowDocumentViewer(false)}
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* PDF Viewer Modal */}
+      <Modal
+        visible={showPDFViewer}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPDFViewer(false)}
+      >
+        <View style={styles.documentModal}>
+          {selectedMedia && (
+            <PDFViewer
+              mediaUrl={selectedMedia.mediaUrl!}
+              fileName={selectedMedia.mediaName || 'Document.pdf'}
+              mediaSize={selectedMedia.mediaSize}
+              onClose={() => setShowPDFViewer(false)}
+            />
           )}
         </View>
       </Modal>
@@ -882,6 +1031,23 @@ const styles = StyleSheet.create({
   },
   chatUserAvatar: {
     marginRight: 16,
+  },
+  headerProfileImageContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.4)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  headerProfileImage: {
+    width: '100%',
+    height: '100%',
   },
   headerAvatarGradient: {
     width: 48,
@@ -1138,6 +1304,10 @@ const styles = StyleSheet.create({
     marginTop: 20,
     textAlign: 'center',
     paddingHorizontal: 20,
+  },
+  documentModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
   },
 
 

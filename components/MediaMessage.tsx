@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { Image } from 'expo-image';
-import * as MediaLibrary from 'expo-media-library';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   StyleSheet,
@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { Message } from '../types/MessageTypes';
+import { DownloadState, MediaDownloader } from '../utils/MediaDownloader';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -20,9 +21,10 @@ interface MediaMessageProps {
   message: Message;
   isOwnMessage: boolean;
   onMediaPress?: () => void;
+  onDocumentPress?: () => void;
 }
 
-export default function MediaMessage({ message, isOwnMessage, onMediaPress }: MediaMessageProps) {
+export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDocumentPress }: MediaMessageProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -43,34 +45,87 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress }: Me
   };
 
   const handleImagePress = () => {
+    // For images, always call onMediaPress for immediate preview
     if (onMediaPress) {
       onMediaPress();
     }
   };
 
   const handleVideoPress = () => {
+    // For videos, always call onMediaPress for immediate preview
     if (onMediaPress) {
       onMediaPress();
     }
   };
 
-  const handleDocumentPress = async () => {
-    try {
-      // Check if we have permission to save files
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Storage permission is required to save documents.');
-        return;
-      }
+  const [downloadState, setDownloadState] = useState<DownloadState | undefined>();
+  const [isDownloading, setIsDownloading] = useState(false);
 
-      // Save document to media library
-      await MediaLibrary.saveToLibraryAsync(message.mediaUrl!);
-      Alert.alert('Success', 'Document saved to your device');
+  useEffect(() => {
+    if (message.mediaUrl && message.mediaName) {
+      const state = MediaDownloader.getDownloadState(message.mediaUrl, message.mediaName);
+      setDownloadState(state);
+
+      const unsubscribe = MediaDownloader.addDownloadListener(
+        message.mediaUrl,
+        message.mediaName,
+        (newState) => {
+          setDownloadState(newState);
+          setIsDownloading(newState.isDownloading);
+        }
+      );
+
+      return unsubscribe;
+    }
+  }, [message.mediaUrl, message.mediaName]);
+
+  const handleDocumentPress = async () => {
+    if (!message.mediaUrl || !message.mediaName) return;
+
+    try {
+      if (downloadState?.isDownloaded && downloadState.localUri) {
+        // Document is already downloaded, trigger preview
+        if (onDocumentPress) {
+          onDocumentPress();
+        }
+        return;
+      } else {
+        // Download the document
+        setIsDownloading(true);
+        await MediaDownloader.downloadMedia(
+          message.mediaUrl,
+          message.mediaName,
+          'application/octet-stream'
+        );
+      }
     } catch (error) {
-      console.error('Error saving document:', error);
-      Alert.alert('Error', 'Failed to save document');
+      console.error('Error handling document:', error);
+      Alert.alert('Error', 'Failed to handle document');
+    } finally {
+      setIsDownloading(false);
     }
   };
+
+  // Handle different media types based on message type
+  // const handleMediaPress = () => {
+  //   if (!message.mediaUrl || !message.mediaName) return;
+
+  //   // This function now only handles documents
+  //   if (message.messageType === 'document') {
+  //     if (downloadState?.isDownloaded && downloadState.localUri) {
+  //       if (onDocumentPress) {
+  //         onDocumentPress();
+  //       }
+  //     } else {
+  //       handleDocumentPress();
+  //     }
+  //   } else {
+  //     // For all other media types (image, video, audio), call onMediaPress
+  //     if (onMediaPress) {
+  //       onMediaPress();
+  //     }
+  //   }
+  // };
 
   const handleVoicePlay = async () => {
     if (!message.mediaUrl) return;
@@ -145,7 +200,17 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress }: Me
   const renderDocumentMessage = () => (
     <TouchableOpacity onPress={handleDocumentPress} style={styles.documentContainer}>
       <View style={[styles.documentIcon, { backgroundColor: theme.colors.primary }]}>
-        <Ionicons name="document" size={20} color="#ffffff" />
+        {isDownloading ? (
+          <ActivityIndicator size="small" color="#ffffff" />
+        ) : downloadState?.isDownloaded ? (
+          <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
+        ) : (
+          <Ionicons 
+            name={message.mediaName?.toLowerCase().endsWith('.pdf') ? 'document-text' : 'document'} 
+            size={20} 
+            color="#ffffff" 
+          />
+        )}
       </View>
       <View style={styles.documentInfo}>
         <Text style={[styles.documentName, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
@@ -156,8 +221,22 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress }: Me
             {formatFileSize(message.mediaSize)}
           </Text>
         )}
+        {isDownloading && (
+          <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
+            Downloading...
+          </Text>
+        )}
+        {downloadState?.isDownloaded && (
+          <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
+            Downloaded
+          </Text>
+        )}
       </View>
-      {/* <Ionicons name="share-outline" size={20} color={theme.colors.primary} /> */}
+      <Ionicons 
+        name={downloadState?.isDownloaded ? "share-outline" : "download-outline"} 
+        size={20} 
+        color={isOwnMessage ? '#ffffff' : theme.colors.primary} 
+      />
     </TouchableOpacity>
   );
 
@@ -335,5 +414,10 @@ const styles = StyleSheet.create({
   },
   voiceDuration: {
     fontSize: 10,
+  },
+  downloadStatus: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 2,
   },
 });
