@@ -79,6 +79,36 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
     }
   }, [message.mediaUrl, message.mediaName]);
 
+  const handleDownload = async (mediaType: string) => {
+    if (!message.mediaUrl || !message.mediaName) return;
+
+    try {
+      setIsDownloading(true);
+      
+      let mimeType = 'application/octet-stream';
+      if (mediaType === 'image') {
+        mimeType = 'image/jpeg';
+      } else if (mediaType === 'video') {
+        mimeType = 'video/mp4';
+      }
+      
+      await MediaDownloader.downloadMedia(
+        message.mediaUrl,
+        message.mediaName,
+        mimeType
+      );
+      
+      Alert.alert('Success', 'Media downloaded successfully!');
+    } catch (error) {
+      console.error('Error downloading media:', error);
+      Alert.alert('Error', 'Failed to download media');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+
+
   const handleDocumentPress = async () => {
     if (!message.mediaUrl || !message.mediaName) return;
 
@@ -164,80 +194,157 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
   };
 
   const renderImageMessage = () => (
-    <TouchableOpacity onPress={handleImagePress} style={styles.imageContainer}>
-      <Image
-        source={{ uri: message.mediaUrl }}
-        style={styles.image}
-        contentFit="cover"
-        transition={200}
-      />
+    <View style={styles.imageContainer}>
+      <TouchableOpacity onPress={handleImagePress} style={styles.imageTouchable}>
+        <Image
+          source={{ uri: message.mediaUrl }}
+          style={styles.image}
+          contentFit="cover"
+          transition={200}
+        />
+      </TouchableOpacity>
+      
+             {/* Download Button for Images */}
+       {!downloadState?.isDownloaded && (
+         <View style={styles.mediaActionsContainer}>
+           <TouchableOpacity 
+             style={[
+               styles.downloadButton, 
+               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+             ]}
+             onPress={() => handleDownload('image')}
+             disabled={isDownloading}
+           >
+             {isDownloading ? (
+               <ActivityIndicator size="small" color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             ) : (
+               <Ionicons name="download-outline" size={16} color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             )}
+           </TouchableOpacity>
+         </View>
+       )}
+       
+       {/* Downloaded Indicator */}
+       {downloadState?.isDownloaded && (
+         <View style={styles.downloadedIndicator}>
+           <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+         </View>
+       )}
+      
       {message.text && (
         <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
           {message.text}
         </Text>
       )}
-    </TouchableOpacity>
+    </View>
   );
 
   const renderVideoMessage = () => (
-    <TouchableOpacity onPress={handleVideoPress} style={styles.videoContainer}>
-      <View style={[styles.videoThumbnail, { backgroundColor: theme.colors.border }]}>
-        <Ionicons name="play-circle" size={40} color={theme.colors.primary} />
-        {message.mediaDuration && (
-          <Text style={[styles.videoDuration, { color: theme.colors.text }]}>
-            {formatDuration(message.mediaDuration)}
-          </Text>
-        )}
-      </View>
+    <View style={styles.videoContainer}>
+      <TouchableOpacity onPress={handleVideoPress} style={styles.videoTouchable}>
+        <View style={[styles.videoThumbnail, { backgroundColor: theme.colors.border }]}>
+          <Ionicons name="play-circle" size={40} color={theme.colors.primary} />
+          {message.mediaDuration && (
+            <Text style={[styles.videoDuration, { color: theme.colors.text }]}>
+              {formatDuration(message.mediaDuration)}
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
+      
+             {/* Download Button for Videos */}
+       {!downloadState?.isDownloaded && (
+         <View style={styles.mediaActionsContainer}>
+           <TouchableOpacity 
+             style={[
+               styles.downloadButton, 
+               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+             ]}
+             onPress={() => handleDownload('video')}
+             disabled={isDownloading}
+           >
+             {isDownloading ? (
+               <ActivityIndicator size="small" color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             ) : (
+               <Ionicons name="download-outline" size={16} color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             )}
+           </TouchableOpacity>
+         </View>
+       )}
+       
+       {/* Downloaded Indicator */}
+       {downloadState?.isDownloaded && (
+         <View style={styles.downloadedIndicator}>
+           <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+         </View>
+       )}
+      
       {message.text && (
         <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
           {message.text}
         </Text>
       )}
-    </TouchableOpacity>
+    </View>
   );
 
   const renderDocumentMessage = () => (
-    <TouchableOpacity onPress={handleDocumentPress} style={styles.documentContainer}>
-      <View style={[styles.documentIcon, { backgroundColor: theme.colors.primary }]}>
-        {isDownloading ? (
-          <ActivityIndicator size="small" color="#ffffff" />
-        ) : downloadState?.isDownloaded ? (
-          <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
-        ) : (
-          <Ionicons 
-            name={message.mediaName?.toLowerCase().endsWith('.pdf') ? 'document-text' : 'document'} 
-            size={20} 
-            color="#ffffff" 
-          />
-        )}
-      </View>
-      <View style={styles.documentInfo}>
-        <Text style={[styles.documentName, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
-          {message.mediaName || 'Document'}
-        </Text>
-        {message.mediaSize && (
-          <Text style={[styles.documentSize, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
-            {formatFileSize(message.mediaSize)}
+    <View style={styles.documentContainer}>
+      <TouchableOpacity onPress={handleDocumentPress} style={styles.documentTouchable}>
+        <View style={[styles.documentIcon, { backgroundColor: theme.colors.primary }]}>
+          {isDownloading ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : downloadState?.isDownloaded ? (
+            <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
+          ) : (
+            <Ionicons 
+              name={message.mediaName?.toLowerCase().endsWith('.pdf') ? 'document-text' : 'document'} 
+              size={20} 
+              color="#ffffff" 
+            />
+          )}
+        </View>
+        <View style={styles.documentInfo}>
+          <Text style={[styles.documentName, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
+            {message.mediaName || 'Document'}
           </Text>
-        )}
-        {isDownloading && (
-          <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
-            Downloading...
-          </Text>
-        )}
-        {downloadState?.isDownloaded && (
-          <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
-            Downloaded
-          </Text>
-        )}
-      </View>
-      <Ionicons 
-        name={downloadState?.isDownloaded ? "share-outline" : "download-outline"} 
-        size={20} 
-        color={isOwnMessage ? '#ffffff' : theme.colors.primary} 
-      />
-    </TouchableOpacity>
+          {message.mediaSize && (
+            <Text style={[styles.documentSize, { color: isOwnMessage ? '#ffffff' : '#000'}]}>
+              {formatFileSize(message.mediaSize)}
+            </Text>
+          )}
+          {isDownloading && (
+            <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
+              Downloading...
+            </Text>
+          )}
+          {downloadState?.isDownloaded && (
+            <Text style={[styles.downloadStatus, { color: isOwnMessage ? '#ffffff' : theme.colors.primary }]}>
+              Downloaded
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
+      
+             {/* Download Button for Documents */}
+       {!downloadState?.isDownloaded && (
+         <View style={styles.documentActionsContainer}>
+           <TouchableOpacity 
+             style={[
+               styles.documentActionButton, 
+               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+             ]}
+             onPress={() => handleDownload('document')}
+             disabled={isDownloading}
+           >
+             {isDownloading ? (
+               <ActivityIndicator size="small" color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             ) : (
+               <Ionicons name="download-outline" size={16} color={isOwnMessage ? '#ffffff' : '#ffffff'} />
+             )}
+           </TouchableOpacity>
+         </View>
+       )}
+    </View>
   );
 
   const renderVoiceMessage = () => (
@@ -300,6 +407,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 6,
   },
+  imageTouchable: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   image: {
     width: Math.min(screenWidth * 0.85, 320),
     height: Math.min(screenWidth * 0.85, 320) * 0.45, // Much shorter height for wider appearance
@@ -316,6 +427,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 6,
+  },
+  videoTouchable: {
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   videoThumbnail: {
     width: Math.min(screenWidth * 0.85, 320),
@@ -350,6 +465,11 @@ const styles = StyleSheet.create({
     maxWidth: Math.min(screenWidth * 0.85, 320),
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
+  },
+  documentTouchable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   documentIcon: {
     width: 28,
@@ -419,5 +539,60 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     marginTop: 2,
+  },
+  
+  // Media action styles
+  mediaActionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 8,
+  },
+  downloadButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  downloadedIndicator: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  
+  // Document action styles
+  documentActionsContainer: {
+    marginLeft: 8,
+  },
+  documentActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
 });

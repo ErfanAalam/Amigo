@@ -4,9 +4,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
-  Alert,
+  Animated,
+  Clipboard,
   Dimensions,
+  Easing,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -27,7 +30,7 @@ import VoiceRecorder from '../components/VoiceRecorder';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseStorage, firebaseFirestore as firestore } from '../firebaseConfig';
-import { MediaFile, Message, VoiceNote } from '../types/MessageTypes';
+import { MediaFile, Message, ReplyReference, VoiceNote } from '../types/MessageTypes';
 import { MediaDownloader } from '../utils/MediaDownloader';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -45,7 +48,6 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
@@ -58,6 +60,23 @@ export default function ChatPage() {
   const [showPDFViewer, setShowPDFViewer] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<Message | null>(null);
   const [receiverProfileImage, setReceiverProfileImage] = useState<string | null>(null);
+  const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ReplyReference | null>(null);
+  const [showContactsList, setShowContactsList] = useState(false);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [customAlert, setCustomAlert] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'info' | 'warning';
+    onConfirm?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
   
   const flatListRef = useRef<FlatList>(null);
 
@@ -87,25 +106,63 @@ export default function ChatPage() {
     }
   }, [userId]);
 
-  // Initialize MediaDownloader and mark messages as read when screen is focused
-  useFocusEffect(
-    useCallback(() => {
-      // Initialize MediaDownloader
-      MediaDownloader.loadDownloadStates();
+  // Fetch pinned message
+  const fetchPinnedMessage = useCallback(async () => {
+    if (!chatId) return;
+    
+    try {
+      const pinnedQuery = await firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .where('isPinned', '==', true)
+        .limit(1)
+        .get();
       
-      // Fetch receiver's profile image
-      fetchReceiverProfileImage();
-      
-      if (chatId && userData?.uid) {
-        markMessagesAsRead();
+      if (!pinnedQuery.empty) {
+        const pinnedDoc = pinnedQuery.docs[0];
+        setPinnedMessage({
+          id: pinnedDoc.id,
+          ...pinnedDoc.data(),
+        } as Message);
+      } else {
+        setPinnedMessage(null);
       }
-      return () => {
-        // Cleanup when screen loses focus
-      };
-    }, [chatId, userData?.uid, fetchReceiverProfileImage])
-  );
+    } catch (error) {
+      console.error('Error fetching pinned message:', error);
+    }
+  }, [chatId]);
 
-  const markMessagesAsRead = async () => {
+  // Fetch contacts for forwarding
+  const fetchContacts = useCallback(async () => {
+    if (!userData?.uid) return;
+    
+    try {
+      const chatsSnapshot = await firestore
+        .collection('chats')
+        .where('participants', 'array-contains', userData.uid)
+        .get();
+      
+      const contactsList: any[] = [];
+      chatsSnapshot.forEach((doc) => {
+        const chatData = doc.data();
+        const otherParticipantIndex = chatData.participants.findIndex((p: string) => p !== userData.uid);
+        if (otherParticipantIndex !== -1) {
+          contactsList.push({
+            id: chatData.participants[otherParticipantIndex],
+            name: chatData.participantNames[otherParticipantIndex],
+            chatId: doc.id,
+          });
+        }
+      });
+      
+      setContacts(contactsList);
+    } catch (error) {
+      console.error('Error fetching contacts:', error);
+    }
+  }, [userData?.uid]);
+
+  const markMessagesAsRead = useCallback(async () => {
     if (!chatId || !userData?.uid) return;
 
     try {
@@ -133,7 +190,31 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
-  };
+  }, [chatId, userData?.uid]);
+
+  // Initialize MediaDownloader and mark messages as read when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      // Initialize MediaDownloader
+      MediaDownloader.loadDownloadStates();
+      
+      // Fetch receiver's profile image
+      fetchReceiverProfileImage();
+      
+      // Fetch pinned message
+      fetchPinnedMessage();
+      
+      // Fetch contacts for forwarding
+      fetchContacts();
+      
+      if (chatId && userData?.uid) {
+        markMessagesAsRead();
+      }
+      return () => {
+        // Cleanup when screen loses focus
+      };
+    }, [chatId, userData?.uid, fetchReceiverProfileImage, fetchPinnedMessage, fetchContacts, markMessagesAsRead])
+  );
 
   // Generate or find chat ID
   useEffect(() => {
@@ -176,10 +257,15 @@ export default function ChatPage() {
       .onSnapshot((snapshot) => {
         const messageList: Message[] = [];
         snapshot.forEach((doc) => {
-          messageList.push({
-            id: doc.id,
-            ...doc.data(),
-          } as Message);
+          const messageData = doc.data() as Message;
+          
+          // Filter out messages that the current user has deleted
+          if (!messageData.deletedFor || !messageData.deletedFor.includes(userData.uid)) {
+            messageList.push({
+              ...messageData,
+              id: doc.id,
+            } as Message);
+          }
         });
         setMessages(messageList);
       });
@@ -204,7 +290,6 @@ export default function ChatPage() {
             // Track upload progress
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
             setUploadProgress(progress);
-            console.log('Upload progress:', progress);
           },
           (error) => {
             console.error('Upload error:', error);
@@ -240,28 +325,28 @@ export default function ChatPage() {
         const mediaUrl = await uploadMediaToStorage(mediaFile);
         
         // Debug logging
-        console.log('MediaFile details:', {
-          name: mediaFile.name,
-          type: mediaFile.type,
-          size: mediaFile.size
-        });
+        // console.log('MediaFile details:', {
+        //   name: mediaFile.name,
+        //   type: mediaFile.type,
+        //   size: mediaFile.size
+        // });
         
         // Determine message type
         let messageType: Message['messageType'] = 'document';
         if (mediaFile.type.startsWith('image/')) {
           messageType = 'image';
-          console.log('✅ Detected as IMAGE');
+          // console.log('✅ Detected as IMAGE');
         } else if (mediaFile.type.startsWith('video/')) {
           messageType = 'video';
-          console.log('✅ Detected as VIDEO');
+          // console.log('✅ Detected as VIDEO');
         } else if (mediaFile.type.startsWith('audio/')) {
           messageType = 'audio';
-          console.log('✅ Detected as AUDIO');
+          // console.log('✅ Detected as AUDIO');
         } else {
           console.log('❌ Defaulting to DOCUMENT, type was:', mediaFile.type);
         }
 
-        console.log('Final messageType:', messageType);
+        // console.log('Final messageType:', messageType);
 
         return {
           messageType,
@@ -281,7 +366,7 @@ export default function ChatPage() {
           Object.entries(mediaData).filter(([_, value]) => value !== undefined)
         );
         
-        console.log('Clean media data for Firebase:', cleanMediaData);
+        // console.log('Clean media data for Firebase:', cleanMediaData);
         
         return firestore
           .collection('chats')
@@ -301,12 +386,12 @@ export default function ChatPage() {
 
       // Update chat metadata with the last media message
       const lastMedia = uploadedMedia[uploadedMedia.length - 1];
-      const mediaText = lastMedia.messageType === 'image' ? '📷 Image' : 
+      let mediaText = lastMedia.messageType === 'image' ? '📷 Image' : 
                        lastMedia.messageType === 'video' ? '🎥 Video' : 
                        lastMedia.messageType === 'audio' ? '🎵 Audio' : '📄 Document';
       
       if (uploadedMedia.length > 1) {
-        const mediaText = `📎 ${uploadedMedia.length} files`;
+        mediaText = `📎 ${uploadedMedia.length} files`;
       }
       
       await firestore
@@ -329,7 +414,7 @@ export default function ChatPage() {
       }, 100);
     } catch (error) {
       console.error('Error sending media messages:', error);
-      Alert.alert('Error', 'Failed to send media messages');
+      showCustomAlert('Error', 'Failed to send media messages', 'error');
     } finally {
       setUploadingMedia(false);
       setUploadProgress(0);
@@ -406,11 +491,347 @@ export default function ChatPage() {
       }, 100);
     } catch (error) {
       console.error('Error sending voice message:', error);
-      Alert.alert('Error', 'Failed to send voice message');
+      showCustomAlert('Error', 'Failed to send voice message', 'error');
     } finally {
       setUploadingMedia(false);
       setUploadProgress(0);
       setUploadingMessage('');
+    }
+  };
+
+  // Message actions
+  const copyMessage = async (message: Message) => {
+    const textToCopy = message.text || `${message.messageType} message`;
+    await Clipboard.setString(textToCopy);
+    showCustomAlert('Copied', 'Message copied to clipboard', 'success');
+  };
+
+  const pinMessage = async (message: Message) => {
+    if (!chatId || !userData?.uid) return;
+
+    try {
+      // First, unpin any existing pinned message
+      if (pinnedMessage) {
+        await firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .doc(pinnedMessage.id)
+          .update({
+            isPinned: false,
+            pinnedAt: FieldValue.delete(),
+          });
+      }
+
+      // Pin the new message
+      await firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(message.id)
+        .update({
+          isPinned: true,
+          pinnedAt: FieldValue.serverTimestamp(),
+          pinnedBy: userData.uid, // Track who pinned the message
+        });
+
+      // Update local state
+      setPinnedMessage(message);
+      showCustomAlert('Pinned', 'Message pinned successfully', 'success');
+    } catch (error) {
+      console.error('Error pinning message:', error);
+      showCustomAlert('Error', 'Failed to pin message', 'error');
+    }
+  };
+
+  const unpinMessage = async () => {
+    if (!chatId || !pinnedMessage) return;
+
+    try {
+      await firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .doc(pinnedMessage.id)
+        .update({
+          isPinned: false,
+          pinnedAt: FieldValue.delete(),
+          pinnedBy: FieldValue.delete(),
+        });
+
+      setPinnedMessage(null);
+      showCustomAlert('Unpinned', 'Message unpinned successfully', 'success');
+    } catch (error) {
+      console.error('Error unpinning message:', error);
+      showCustomAlert('Error', 'Failed to unpin message', 'error');
+    }
+  };
+
+  const starMessage = async (message: Message) => {
+    if (!chatId || !userData?.uid) return;
+
+    try {
+      const isCurrentlyStarred = message.starredBy?.includes(userData.uid);
+      
+      if (isCurrentlyStarred) {
+        // Unstar the message
+        await firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .doc(message.id)
+          .update({
+            starredBy: FieldValue.arrayRemove(userData.uid),
+            isStarred: false,
+          });
+        showCustomAlert('Unstarred', 'Message removed from starred', 'info');
+      } else {
+        // Star the message
+        await firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .doc(message.id)
+          .update({
+            starredBy: FieldValue.arrayUnion(userData.uid),
+            starredAt: FieldValue.serverTimestamp(),
+            isStarred: true,
+          });
+        showCustomAlert('Starred', 'Message added to starred', 'success');
+      }
+    } catch (error) {
+      console.error('Error starring message:', error);
+      showCustomAlert('Error', 'Failed to star message', 'error');
+    }
+  };
+
+  const deleteMessage = async (message: Message) => {
+    if (!chatId || !userData?.uid) return;
+
+    // Show confirmation dialog
+    const isOwnMessage = message.senderId === userData?.uid;
+    showCustomAlert(
+      'Delete Message',
+      `Are you sure you want to delete this ${isOwnMessage ? 'message' : 'message from ' + message.senderName}? This action cannot be undone.`,
+      'warning',
+      async () => {
+        try {
+          // Instead of deleting the message, mark it as deleted for the user
+          // This keeps it in the database for admin purposes
+          await firestore
+            .collection('chats')
+            .doc(chatId)
+            .collection('messages')
+            .doc(message.id)
+            .update({
+              deletedFor: FieldValue.arrayUnion(userData.uid),
+              deletedAt: FieldValue.serverTimestamp(),
+            });
+
+          showCustomAlert('Deleted', 'Message deleted successfully', 'success');
+        } catch (error) {
+          console.error('Error deleting message:', error);
+          showCustomAlert('Error', 'Failed to delete message', 'error');
+        }
+      }
+    );
+  };
+
+  const forwardMessage = async (targetChatId: string) => {
+    if (!forwardingMessage || !userData?.uid) return;
+
+    try {
+      // Create the forwarded message
+      const messageData: any = {
+        senderId: userData.uid,
+        senderName: userData.displayName || 'Unknown',
+        timestamp: FieldValue.serverTimestamp(),
+        isRead: false,
+        readBy: [],
+        messageType: forwardingMessage.messageType,
+        forwardedFrom: {
+          senderName: forwardingMessage.senderName,
+          senderId: forwardingMessage.senderId,
+        },
+      };
+
+      if (forwardingMessage.messageType === 'text') {
+        messageData.text = forwardingMessage.text;
+      } else {
+        messageData.mediaUrl = forwardingMessage.mediaUrl;
+        messageData.mediaName = forwardingMessage.mediaName;
+        messageData.mediaSize = forwardingMessage.mediaSize;
+        if (forwardingMessage.mediaDuration) {
+          messageData.mediaDuration = forwardingMessage.mediaDuration;
+        }
+      }
+
+      // Add message to target chat
+      await firestore
+        .collection('chats')
+        .doc(targetChatId)
+        .collection('messages')
+        .add(messageData);
+
+      // Update target chat metadata
+      const lastMessage = forwardingMessage.messageType === 'text' 
+        ? forwardingMessage.text
+        : `📎 ${forwardingMessage.messageType}`;
+
+      await firestore
+        .collection('chats')
+        .doc(targetChatId)
+        .update({
+          lastMessage,
+          lastMessageType: forwardingMessage.messageType,
+          lastMessageTime: FieldValue.serverTimestamp(),
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+
+      setForwardingMessage(null);
+      setShowContactsList(false);
+      showCustomAlert('Forwarded', 'Message forwarded successfully', 'success');
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      showCustomAlert('Error', 'Failed to forward message', 'error');
+    }
+  };
+
+  const replyToMessage = (message: Message) => {
+    const replyRef: ReplyReference = {
+      messageId: message.id,
+      messageText: message.text,
+      messageType: message.messageType,
+      senderName: message.senderName,
+      senderId: message.senderId,
+      mediaName: message.mediaName,
+    };
+    setReplyingTo(replyRef);
+  };
+
+  const showCustomAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning', onConfirm?: () => void) => {
+    setCustomAlert({
+      visible: true,
+      title,
+      message,
+      type,
+      onConfirm,
+    });
+  };
+
+  const hideCustomAlert = () => {
+    setCustomAlert({
+      visible: false,
+      title: '',
+      message: '',
+      type: 'info',
+    });
+  };
+
+  const [showActionSheet, setShowActionSheet] = useState(false);
+  const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
+  const [popupAnimation] = useState(new Animated.Value(0));
+  const [popupScale] = useState(new Animated.Value(0.8));
+
+  const animatePopupIn = () => {
+    // Reset values first
+    popupAnimation.setValue(0);
+    popupScale.setValue(0.8);
+    
+    Animated.parallel([
+      Animated.timing(popupAnimation, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.spring(popupScale, {
+        toValue: 1,
+        tension: 150,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const animatePopupOut = () => {
+    Animated.parallel([
+      Animated.timing(popupAnimation, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+        easing: Easing.in(Easing.cubic),
+      }),
+      Animated.timing(popupScale, {
+        toValue: 0.8,
+        duration: 200,
+        useNativeDriver: true,
+        easing: Easing.in(Easing.cubic),
+      }),
+    ]).start(() => {
+      // Small delay to ensure animation completes before hiding modal
+      setTimeout(() => {
+        setShowActionSheet(false);
+        setSelectedMessageForActions(null);
+      }, 50);
+    });
+  };
+
+  const showMessageActions = (message: Message) => {
+    // const isOwnMessage = message.senderId === userData?.uid;
+    const isStarred = message.starredBy?.includes(userData?.uid || '') || false;
+    
+    if (Platform.OS === 'ios') {
+      const options = [
+        'Copy',
+        isStarred ? 'Unstar' : 'Star',
+        'Reply',
+        'Forward',
+      ];
+      
+      // Add pin/unpin option for all messages
+      options.push(pinnedMessage?.id === message.id ? 'Unpin' : 'Pin');
+      
+      // Add delete option for all messages
+      options.push('Delete');
+      
+      options.push('Cancel');
+
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: options.length - 1,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) copyMessage(message);
+          else if (buttonIndex === 1) starMessage(message);
+          else if (buttonIndex === 2) replyToMessage(message);
+          else if (buttonIndex === 3) {
+            setForwardingMessage(message);
+            setShowContactsList(true);
+          }
+          else if (buttonIndex === 4) {
+            // Pin/Unpin action
+            if (pinnedMessage?.id === message.id) {
+              unpinMessage();
+            } else {
+              pinMessage(message);
+            }
+          }
+          else if (buttonIndex === 5) {
+            // Delete action
+            deleteMessage(message);
+          }
+        }
+      );
+    } else {
+      // For Android, show custom action popup
+      setSelectedMessageForActions(message);
+      setShowActionSheet(true);
+      // Start animation immediately for smoother experience
+      requestAnimationFrame(() => {
+        animatePopupIn();
+      });
     }
   };
 
@@ -420,23 +841,39 @@ export default function ChatPage() {
     const messageText = newMessage.trim();
     setNewMessage('');
     setLoading(true);
-    setIsTyping(false);
 
     try {
+      const messageData: any = {
+        text: messageText,
+        messageType: 'text',
+        senderId: userData.uid,
+        senderName: userData.displayName || 'Unknown',
+        timestamp: FieldValue.serverTimestamp(),
+        isRead: false,
+        readBy: [],
+      };
+
+      // Add reply reference if replying
+      if (replyingTo) {
+        // Clean the reply data to remove any undefined values
+        const cleanReplyTo = {
+          messageId: replyingTo.messageId,
+          messageText: replyingTo.messageText || '',
+          messageType: replyingTo.messageType,
+          senderName: replyingTo.senderName || 'Unknown',
+          senderId: replyingTo.senderId,
+          mediaName: replyingTo.mediaName || '',
+        };
+        messageData.replyTo = cleanReplyTo;
+        setReplyingTo(null);
+      }
+
       // Add message to chat
       await firestore
         .collection('chats')
         .doc(chatId)
         .collection('messages')
-        .add({
-          text: messageText,
-          messageType: 'text',
-          senderId: userData.uid,
-          senderName: userData.displayName || 'Unknown',
-          timestamp: FieldValue.serverTimestamp(),
-          isRead: false,
-          readBy: [],
-        });
+        .add(messageData);
 
       // Update chat metadata
       await firestore
@@ -459,7 +896,7 @@ export default function ChatPage() {
       }, 100);
     } catch (error) {
       console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message');
+      showCustomAlert('Error', 'Failed to send message', 'error');
       setNewMessage(messageText); // Restore message on error
     } finally {
       setLoading(false);
@@ -527,35 +964,12 @@ export default function ChatPage() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isOwnMessage = item.senderId === userData?.uid;
-    const [color1, color2] = getAvatarGradient(item.senderName || 'User');
+    const isStarred = item.starredBy?.includes(userData?.uid || '') || false;
+    const isPinned = item.isPinned || false;
     
-    return (
-      <View style={[
-        styles.modernMessageContainer,
-        isOwnMessage ? styles.ownMessage : styles.otherMessage
-      ]}>
-        {/* {!isOwnMessage && (
-          <View style={styles.senderAvatarContainer}>
-             {receiverProfileImage ? (
-                  <View style={styles.headerProfileImageContainer}>
-                    <Image source={{ uri: receiverProfileImage }} style={styles.headerProfileImage} />
-                  </View>
-                ) : (
-            <LinearGradient
-              colors={[color1, color2]}
-              style={styles.senderAvatar}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={[styles.senderAvatarText, { color: '#000' }]}>
-                {item.senderName?.charAt(0)?.toUpperCase() || 'U'}
-              </Text>
-            </LinearGradient>
-            )}
-          </View>
-        )} */}
-        
-        {isOwnMessage ? (
+    const MessageBubble = ({ children }: { children: React.ReactNode }) => {
+      if (isOwnMessage) {
+        return (
           <LinearGradient
             colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#667eea', '#764ba2']}
             style={[
@@ -565,51 +979,11 @@ export default function ChatPage() {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            {/* Render media content if it's a media message */}
-            {item.messageType !== 'text' && item.mediaUrl ? (
-              <MediaMessage 
-                message={item} 
-                isOwnMessage={isOwnMessage}
-                onMediaPress={() => handleMediaPress(item)}
-                onDocumentPress={() => handleDocumentPress(item)}
-              />
-            ) : (
-              <Text style={[
-                styles.modernMessageText,
-                { color: '#ffffff' }
-              ]}>
-                {item.text}
-              </Text>
-            )}
-            
-            <View style={styles.messageFooter}>
-              <Text style={[
-                styles.modernMessageTime,
-                { color: '#ffffff' }
-              ]}>
-                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                }) : ''}
-              </Text>
-              {isOwnMessage && (
-                <View style={styles.messageStatus}>
-                  <Ionicons 
-                    name="checkmark-done" 
-                    size={14} 
-                    color={item.isRead ? '#4CAF50' : '#ffffff'} 
-                    style={{ marginLeft: 4 }}
-                  />
-                  {item.isRead && (
-                    <Text style={[styles.readStatus, { color: '#4CAF50' }]}>
-                      Read
-                    </Text>
-                  )}
-                </View>
-              )}
-            </View>
+            {children}
           </LinearGradient>
-        ) : (
+        );
+      } else {
+        return (
           <View style={[
             styles.modernMessageBubble,
             styles.otherMessageBubble,
@@ -618,7 +992,92 @@ export default function ChatPage() {
               borderColor: '#E0E0E0',
             }
           ]}>
-            {/* Render media content if it's a media message */}
+            {children}
+          </View>
+        );
+      }
+    };
+    
+    return (
+      <View style={[
+        styles.modernMessageContainer,
+        isOwnMessage ? styles.ownMessage : styles.otherMessage
+      ]}>
+        <TouchableOpacity
+          onLongPress={() => showMessageActions(item)}
+          onPress={() => {
+            showMessageActions(item);
+            // Simple tap action - could be used for other features
+          }}
+          style={styles.messageWrapper}
+          activeOpacity={0.8}
+        >
+          {/* Reply indicator */}
+          {item.replyTo && (
+            <View style={[
+              styles.replyContainer,
+              isOwnMessage ? styles.ownReplyContainer : styles.otherReplyContainer
+            ]}>
+              <View style={[
+                styles.replyBar,
+                { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.3)' : theme.colors.primary }
+              ]} />
+              <View style={styles.replyContent}>
+                <Text style={[
+                  styles.replySenderName,
+                  { color: isOwnMessage ? '#ffffff' : theme.colors.primary }
+                ]}>
+                  {item.replyTo.senderName}
+                </Text>
+                <Text 
+                  style={[
+                    styles.replyText,
+                    { 
+                      color: isOwnMessage 
+                        ? 'rgba(255,255,255,0.95)' 
+                        : '#333333'
+                    }
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.replyTo.messageType === 'text' 
+                    ? (item.replyTo.messageText || 'Text message')
+                    : `📎 ${item.replyTo.mediaName || item.replyTo.messageType || 'Media'}`
+                  }
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <MessageBubble>
+            {/* Pin indicator */}
+            {isPinned && (
+              <View style={styles.pinIndicator}>
+                <Ionicons name="pin" size={12} color={isOwnMessage ? '#ffffff' : theme.colors.primary} />
+              </View>
+            )}
+
+            {/* Star indicator */}
+            {isStarred && (
+              <View style={styles.starIndicator}>
+                <Ionicons name="star" size={12} color={isOwnMessage ? '#FFD700' : '#FFD700'} />
+              </View>
+            )}
+
+            {/* Forward indicator */}
+            {item.forwardedFrom && (
+              <View style={styles.forwardIndicator}>
+                <Ionicons name="share" size={12} color={isOwnMessage ? 'rgba(255,255,255,0.8)' : theme.colors.textSecondary} />
+                <Text style={[
+                  styles.forwardText,
+                  { color: isOwnMessage ? 'rgba(255,255,255,0.8)' : theme.colors.textSecondary }
+                ]}>
+                  Forwarded 
+                </Text>
+              </View>
+            )}
+
+            {/* Message content */}
             {item.messageType !== 'text' && item.mediaUrl ? (
               <MediaMessage 
                 message={item} 
@@ -629,7 +1088,7 @@ export default function ChatPage() {
             ) : (
               <Text style={[
                 styles.modernMessageText,
-                { color: '#424242' }
+                { color: isOwnMessage ? '#ffffff' : '#424242' }
               ]}>
                 {item.text}
               </Text>
@@ -638,16 +1097,51 @@ export default function ChatPage() {
             <View style={styles.messageFooter}>
               <Text style={[
                 styles.modernMessageTime,
-                { color: '#757575' }
+                { color: isOwnMessage ? '#ffffff' : '#757575' }
               ]}>
                 {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { 
                   hour: '2-digit', 
                   minute: '2-digit' 
                 }) : ''}
               </Text>
+              {isOwnMessage && (
+                <View style={styles.messageStatus}>
+                  {/* Read receipts with proper tick colors */}
+                  {item.readBy && item.readBy.length > 0 ? (
+                    <View style={styles.readReceipts}>
+                      <Ionicons 
+                        name="checkmark-done" 
+                        size={16} 
+                        color="#2196F3" // Blue double tick for read messages
+                      />
+                      {/* <Text style={[styles.readStatus, { color: '#2196F3' }]}>
+                        Read
+                      </Text> */}
+                    </View>
+                  ) : item.timestamp ? (
+                    <View style={styles.readReceipts}>
+                      <Ionicons 
+                        name="checkmark" 
+                        size={16} 
+                        color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
+                      />
+                      {/* <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
+                        Delivered
+                      </Text> */}
+                    </View>
+                  ) : (
+                    <View style={styles.readReceipts}>
+                      <ActivityIndicator size={12} color="rgba(255,255,255,0.7)" />
+                      <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
+                        Sending...
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
-          </View>
-        )}
+          </MessageBubble>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -725,6 +1219,45 @@ export default function ChatPage() {
         </LinearGradient>
       </View>
 
+      {/* Pinned Message Banner */}
+      {pinnedMessage && (
+        <TouchableOpacity 
+          style={[styles.pinnedMessageBanner, { backgroundColor: theme.colors.surface }]}
+          onPress={() => {
+            // Scroll to pinned message
+            const messageIndex = messages.findIndex(m => m.id === pinnedMessage.id);
+            if (messageIndex !== -1 && flatListRef.current) {
+              flatListRef.current.scrollToIndex({ index: messageIndex, animated: true });
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <View style={styles.pinnedMessageContent}>
+            <View style={styles.pinnedMessageIconContainer}>
+              <Ionicons name="pin" size={16} color={theme.colors.primary} />
+            </View>
+            <View style={styles.pinnedMessageTextContainer}>
+              <Text style={[styles.pinnedMessageLabel, { color: theme.colors.primary }]}>
+                Pinned by {pinnedMessage.pinnedBy === userData?.uid ? 'you' : pinnedMessage.senderName}
+              </Text>
+                              <Text style={[styles.pinnedMessageText, { color: theme.colors.text }]} numberOfLines={1}>
+                  {pinnedMessage.messageType === 'text' 
+                    ? (pinnedMessage.text || 'Text message')
+                    : `📎 ${pinnedMessage.mediaName || pinnedMessage.messageType || 'Media'}`
+                  }
+                </Text>
+            </View>
+            <TouchableOpacity 
+              onPress={unpinMessage}
+              style={styles.unpinButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Messages and Input with proper keyboard handling */}
       <KeyboardAvoidingView 
         style={styles.chatBody}
@@ -775,6 +1308,40 @@ export default function ChatPage() {
                   {Math.round(uploadProgress)}%
                 </Text>
               </View>
+            </View>
+          </View>
+        )}
+
+        {/* Reply Bar */}
+        {replyingTo && (
+          <View style={[styles.replyInputBar, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.replyInputContent}>
+              <View style={styles.replyInputInfo}>
+                <View style={styles.replyInputIconContainer}>
+                  <Ionicons name="arrow-undo" size={16} color={theme.colors.primary} />
+                </View>
+                <View style={styles.replyInputTextContainer}>
+                  <Text style={[styles.replyInputLabel, { color: theme.colors.primary }]}>
+                    Replying to {replyingTo.senderName}
+                  </Text>
+                  <Text 
+                    style={[styles.replyInputText, { color: theme.colors.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    {replyingTo.messageType === 'text' 
+                      ? (replyingTo.messageText || 'Text message')
+                      : `📎 ${replyingTo.mediaName || replyingTo.messageType || 'Media'}`
+                    }
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setReplyingTo(null)}
+                style={styles.cancelReplyButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -838,7 +1405,6 @@ export default function ChatPage() {
               value={newMessage}
               onChangeText={(text) => {
                 setNewMessage(text);
-                setIsTyping(text.length > 0);
               }}
               placeholder="Type a message..."
               placeholderTextColor={theme.colors.inputPlaceholder}
@@ -980,6 +1546,370 @@ export default function ChatPage() {
         </View>
       </Modal>
 
+      {/* Custom Action Popup Modal */}
+      <Modal
+        visible={showActionSheet}
+        transparent
+        animationType="none"
+        onRequestClose={animatePopupOut}
+        statusBarTranslucent
+        hardwareAccelerated
+      >
+        <View style={styles.actionPopupOverlay} pointerEvents="box-none">
+          <Animated.View
+            style={[
+              styles.actionPopupBackdrop,
+              {
+                opacity: popupAnimation,
+              },
+            ]}
+            pointerEvents="none"
+          />
+          <TouchableOpacity 
+            style={styles.actionPopupBackdrop}
+            onPress={animatePopupOut}
+            activeOpacity={1}
+          />
+          <Animated.View 
+            style={[
+              styles.actionPopupContainer, 
+              { 
+                backgroundColor: theme.colors.surface,
+                opacity: popupAnimation,
+                transform: [{ scale: popupScale }],
+              }
+            ]}
+            pointerEvents="box-none"
+          >
+            {selectedMessageForActions && (
+              <>
+                {/* Selected Message Display */}
+                <View style={styles.selectedMessageContainer}>
+                  <View style={[
+                    styles.selectedMessageBubble,
+                    { 
+                      backgroundColor: selectedMessageForActions.senderId === userData?.uid 
+                        ? theme.colors.primary 
+                        : theme.colors.border 
+                    }
+                  ]}>
+                    <Text style={[
+                      styles.selectedMessageText,
+                      { 
+                        color: selectedMessageForActions.senderId === userData?.uid 
+                          ? '#FFFFFF' 
+                          : theme.colors.text 
+                      }
+                    ]}>
+                      {selectedMessageForActions.text}
+                    </Text>
+                    <Text style={[
+                      styles.selectedMessageTime,
+                      { 
+                        color: selectedMessageForActions.senderId === userData?.uid 
+                          ? 'rgba(255, 255, 255, 0.7)' 
+                          : theme.colors.textSecondary 
+                      }
+                    ]}>
+                      {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }) : ''}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Action Buttons */}
+                <View style={styles.actionPopupActions}>
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      replyToMessage(selectedMessageForActions);
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Reply</Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                        <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      setForwardingMessage(selectedMessageForActions);
+                      setShowContactsList(true);
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Forward</Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 152, 0, 0.1)' }]}>
+                        <Ionicons name="share-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      copyMessage(selectedMessageForActions);
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Copy</Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(103, 126, 234, 0.1)' }]}>
+                        <Ionicons name="copy-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      starMessage(selectedMessageForActions);
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                        {selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? 'Unstar' : 'Star'}
+                      </Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
+                        <Ionicons 
+                          name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"} 
+                          size={18} 
+                          color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary} 
+                        />
+                      </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      if (pinnedMessage?.id === selectedMessageForActions.id) {
+                        unpinMessage();
+                      } else {
+                        pinMessage(selectedMessageForActions);
+                      }
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                        {pinnedMessage?.id === selectedMessageForActions.id ? 'Unpin' : 'Pin'}
+                      </Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                        <Ionicons 
+                          name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"} 
+                          size={18} 
+                          color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary} 
+                        />
+                      </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      // Report functionality can be added here
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Report</Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
+                        <Ionicons name="warning-outline" size={18} color="#FF9800" />
+                      </View>
+                  </TouchableOpacity>
+
+                  {/* Delete Option - Available for all messages */}
+                  <TouchableOpacity
+                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => {
+                      deleteMessage(selectedMessageForActions);
+                      animatePopupOut();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.actionPopupButtonContent}>
+                      <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
+                        Delete
+                      </Text>
+                    </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                        <Ionicons 
+                          name="trash-outline" 
+                          size={18} 
+                          color="#F44336" 
+                        />
+                      </View>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* Custom Alert Modal */}
+      <Modal
+        visible={customAlert.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={hideCustomAlert}
+      >
+        <View style={styles.customAlertOverlay}>
+          <View style={[styles.customAlertContainer, { backgroundColor: theme.colors.surface }]}>
+            {/* Alert Icon */}
+            <View style={[
+              styles.alertIconContainer,
+              {
+                backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
+                               customAlert.type === 'error' ? '#F44336' :
+                               customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
+              }
+            ]}>
+              <Ionicons 
+                name={
+                  customAlert.type === 'success' ? 'checkmark-circle' :
+                  customAlert.type === 'error' ? 'close-circle' :
+                  customAlert.type === 'warning' ? 'warning' : 'information-circle'
+                } 
+                size={32} 
+                color="#ffffff" 
+              />
+            </View>
+
+            {/* Alert Title */}
+            <Text style={[styles.alertTitle, { color: theme.colors.text }]}>
+              {customAlert.title}
+            </Text>
+
+            {/* Alert Message */}
+            <Text style={[styles.alertMessage, { color: theme.colors.textSecondary }]}>
+              {customAlert.message}
+            </Text>
+
+            {/* Action Buttons */}
+            <View style={styles.alertButtonsContainer}>
+              {customAlert.type === 'warning' && customAlert.onConfirm && (
+                <TouchableOpacity
+                  style={[styles.alertButton, styles.alertCancelButton]}
+                  onPress={hideCustomAlert}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.alertCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity
+                style={[
+                  styles.alertButton,
+                  {
+                    backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
+                                   customAlert.type === 'error' ? '#F44336' :
+                                   customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
+                  }
+                ]}
+                onPress={() => {
+                  if (customAlert.onConfirm) {
+                    customAlert.onConfirm();
+                  }
+                  hideCustomAlert();
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.alertButtonText}>
+                  {customAlert.type === 'warning' && customAlert.onConfirm ? 'Delete' : 'OK'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Contacts List Modal for Forwarding */}
+      <Modal
+        visible={showContactsList}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowContactsList(false);
+          setForwardingMessage(null);
+        }}
+      >
+        <View style={styles.contactsModal}>
+          <View style={[styles.contactsContainer, { backgroundColor: theme.colors.background }]}>
+            <View style={styles.contactsHeader}>
+              <View style={styles.contactsHeaderInfo}>
+                <Text style={[styles.contactsTitle, { color: theme.colors.text }]}>
+                  Forward to
+                </Text>
+                {forwardingMessage && (
+                  <Text style={[styles.forwardingPreview, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                    {forwardingMessage.messageType === 'text' 
+                      ? (forwardingMessage.text || 'Text message')
+                      : `📎 ${forwardingMessage.mediaName || forwardingMessage.messageType || 'Media'}`
+                    }
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowContactsList(false);
+                  setForwardingMessage(null);
+                }}
+                style={styles.contactsCloseButton}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <FlatList
+              data={contacts}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.contactItem, { borderBottomColor: theme.colors.border }]}
+                  onPress={() => forwardMessage(item.chatId)}
+                >
+                  <LinearGradient
+                    colors={getAvatarGradient(item.name) as any}
+                    style={styles.contactAvatar}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <Text style={styles.contactAvatarText}>
+                      {item.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </Text>
+                  </LinearGradient>
+                  <View style={styles.contactInfo}>
+                    <Text style={[styles.contactName, { color: theme.colors.text }]}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.contactSubtitle, { color: theme.colors.textSecondary }]}>
+                      Forward from {userData?.displayName || 'You'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              style={styles.contactsList}
+            />
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -1188,10 +2118,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  readReceipts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   readStatus: {
     fontSize: 10,
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: 2,
     opacity: 0.9,
   },
 
@@ -1382,5 +2317,413 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
+  },
+
+  // Message wrapper for touch handling
+  messageWrapper: {
+    flex: 1,
+  },
+
+  // Pinned message banner
+  pinnedMessageBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(103, 126, 234, 0.08)',
+  },
+  pinnedMessageContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pinnedMessageIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(103, 126, 234, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 126, 234, 0.2)',
+  },
+  pinnedMessageTextContainer: {
+    flex: 1,
+  },
+  pinnedMessageLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pinnedMessageText: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  unpinButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+
+  // Reply container in messages
+  replyContainer: {
+    marginBottom: 8,
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  ownReplyContainer: {
+    marginLeft: 'auto',
+    maxWidth: '78%',
+    backgroundColor: 'rgba(71, 22, 94, 0.67)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  otherReplyContainer: {
+    maxWidth: '78%',
+    backgroundColor:'rgba(71, 22, 94, 0.67)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.15)',
+  },
+  replyBar: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 4,
+    width: 3,
+    borderRadius: 2,
+  },
+  replyContent: {
+    marginLeft: 12,
+    paddingVertical: 2,
+  },
+  replySenderName: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  replyText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+
+  // Reply input bar
+  replyInputBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(103, 126, 234, 0.05)',
+  },
+  replyInputContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  replyInputInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  replyInputIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(103, 126, 234, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 126, 234, 0.2)',
+  },
+  replyInputTextContainer: {
+    flex: 1,
+  },
+  replyInputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  replyInputText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+  cancelReplyButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+
+  // Star and pin indicators
+  starIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+  },
+  pinIndicator: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 1,
+  },
+
+  // Contacts modal for forwarding
+  contactsModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  contactsContainer: {
+    maxHeight: screenHeight * 0.7,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+  },
+  contactsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  contactsHeaderInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  contactsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  forwardingPreview: {
+    fontSize: 14,
+    fontWeight: '400',
+    fontStyle: 'italic',
+  },
+  contactsCloseButton: {
+    padding: 4,
+  },
+  contactsList: {
+    paddingHorizontal: 20,
+  },
+  contactItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  contactAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  contactAvatarText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+  },
+  contactInfo: {
+    flex: 1,
+  },
+  contactName: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  contactSubtitle: {
+    fontSize: 13,
+    fontWeight: '400',
+  },
+
+  // Custom Alert Styles
+  customAlertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  customAlertContainer: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  alertIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+    lineHeight: 28,
+  },
+  alertMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  alertButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  alertButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 25,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  alertCancelButton: {
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.2)',
+  },
+  alertButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  alertCancelButtonText: {
+    color: '#666666',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  // Action Popup Styles
+  actionPopupOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    backgroundColor: 'transparent',
+  },
+  actionPopupBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  actionPopupContainer: {
+    width: 280,
+    borderRadius: 16,
+    padding: 16,
+    marginRight: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+
+  actionPopupActions: {
+  },
+  actionPopupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderRadius: 0,
+    marginBottom: 0,
+  },
+  actionPopupButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  actionIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  actionPopupButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
+  forwardIndicator:{
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  forwardText:{
+    marginLeft: 4,
+  },
+  selectedMessageContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  selectedMessageBubble: {
+    padding: 12,
+    borderRadius: 12,
+    maxWidth: '100%',
+  },
+  selectedMessageText: {
+    fontSize: 15,
+    fontWeight: '400',
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  selectedMessageTime: {
+    fontSize: 11,
+    fontWeight: '400',
+    opacity: 0.7,
   },
 });

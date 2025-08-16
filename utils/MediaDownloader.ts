@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 
 export interface DownloadState {
   isDownloading: boolean;
@@ -135,23 +136,27 @@ export class MediaDownloader {
 
   static async openPDF(localUri: string, fileName: string): Promise<void> {
     try {
-      const mimeType = 'application/pdf';
-      console.log('Opening PDF:', fileName);
+      console.log('Opening PDF:', fileName, 'at:', localUri);
       
-      // Try to open PDF directly by using a more specific approach
-      // The dialogTitle should help indicate this is for opening, not sharing
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(localUri, {
-          mimeType: mimeType,
-          dialogTitle: `Open ${fileName} with:`,
-          UTI: 'com.adobe.pdf'
-        });
+      // For mobile platforms, we need to use sharing but with intent to open
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        if (await Sharing.isAvailableAsync()) {
+          // Use sharing but try to make it more "open" oriented
+          await Sharing.shareAsync(localUri, {
+            mimeType: 'application/pdf',
+            // Don't use dialogTitle to avoid "share" language
+            UTI: 'com.adobe.pdf'
+          });
+        } else {
+          throw new Error('Unable to open PDF. Sharing not available on this device.');
+        }
       } else {
-        throw new Error('Sharing is not available on this device');
+        // For web or other platforms, this won't work anyway
+        throw new Error('PDF viewing not supported on this platform.');
       }
     } catch (error) {
       console.error('Error opening PDF:', error);
-      throw error;
+      throw new Error('Failed to open PDF. Please ensure you have a PDF viewer app installed.');
     }
   }
 

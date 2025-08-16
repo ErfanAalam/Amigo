@@ -172,30 +172,38 @@ export default function PDFViewer({
         </View>
         
         <View style={styles.pdfContainer}>
-          <Text style={[styles.pdfMessage, { color: theme.colors.textSecondary }]}>
-            PDF Ready to View
+          <View style={styles.pdfIcon}>
+            <Ionicons name="document-text" size={64} color={theme.colors.primary} />
+          </View>
+          
+          <Text style={[styles.pdfMessage, { color: theme.colors.text }]}>
+            {fileName}
           </Text>
           <Text style={[styles.pdfSubMessage, { color: theme.colors.textSecondary }]}>
-            Tap &quot;Open PDF&quot; to view in your default PDF app
+            PDF downloaded and ready to view
           </Text>
           
           <View style={styles.pdfActions}>
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+              style={[styles.primaryActionButton, { backgroundColor: theme.colors.primary }]}
               onPress={openPDFInApp}
             >
-              <Ionicons name="eye" size={20} color="#ffffff" />
-              <Text style={styles.actionButtonText}>Open PDF</Text>
+              <Ionicons name="open-outline" size={22} color="#ffffff" />
+              <Text style={styles.actionButtonText}>View PDF</Text>
             </TouchableOpacity>
             
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: theme.colors.error }]}
+              style={[styles.secondaryActionButton, { borderColor: theme.colors.error }]}
               onPress={deleteDownloadedPDF}
             >
-              <Ionicons name="trash" size={20} color="#ffffff" />
-              <Text style={styles.actionButtonText}>Delete</Text>
+              <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
+              <Text style={[styles.secondaryActionButtonText, { color: theme.colors.error }]}>Delete</Text>
             </TouchableOpacity>
           </View>
+          
+          <Text style={[styles.helpText, { color: theme.colors.textSecondary }]}>
+            Note: This will open your device&apos;s app selection menu. Choose your preferred PDF viewer app.
+          </Text>
         </View>
       </View>
     );
@@ -321,6 +329,7 @@ export default function PDFViewer({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+
   },
   closeButton: {
     position: 'absolute',
@@ -473,9 +482,51 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     opacity: 0.8,
   },
+  // pdfIcon: {
+  //   alignItems: 'center',
+  //   marginBottom: 20,
+  // },
   pdfActions: {
+    gap: 12,
+    marginTop: 32,
+    marginBottom: 20,
+    alignSelf: 'stretch',
+  },
+  primaryActionButton: {
     flexDirection: 'row',
-    gap: 16,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 10,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  secondaryActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 10,
+    justifyContent: 'center',
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  secondaryActionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  helpText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginHorizontal: 20,
+    fontStyle: 'italic',
   },
   backButton: {
     padding: 8,

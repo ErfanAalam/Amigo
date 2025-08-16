@@ -8,6 +8,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Modal,
   RefreshControl,
   StyleSheet,
   Text,
@@ -17,7 +18,7 @@ import {
 } from "react-native";
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { firebaseFirestore as firestore } from '../../firebaseConfig';
+import { FieldValue, firebaseFirestore as firestore } from '../../firebaseConfig';
 
 interface ChatUser {
   uid: string;
@@ -28,6 +29,10 @@ interface ChatUser {
   lastMessageTime: any;
   unreadCount: number;
   profileImageUrl?: string;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  isFavorite?: boolean;
+  chatId?: string; // Add chatId for operations
 }
 
 export default function Home() {
@@ -39,6 +44,13 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState(0);
+  
+  // New state variables for chat management
+  const [selectedChats, setSelectedChats] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [pinnedChats, setPinnedChats] = useState<ChatUser[]>([]);
+  const [unpinnedChats, setUnpinnedChats] = useState<ChatUser[]>([]);
+  const [showActionMenu, setShowActionMenu] = useState(false);
 
   const fetchChatHistory = useCallback(async () => {
     if (!userData?.uid) return;
@@ -73,6 +85,12 @@ export default function Home() {
           const lastMessageType = chatData.lastMessageType || 'text';
           const lastMessageTime = chatData.lastMessageTime || null;
 
+          // Get chat metadata for pin, mute, and favorite status
+          const chatMetadata = chatData.metadata?.[userData.uid] || {};
+          const isPinned = chatMetadata.isPinned || false;
+          const isMuted = chatMetadata.isMuted || false;
+          const isFavorite = chatMetadata.isFavorite || false;
+
           // Get user details from users collection
           try {
             const userDoc = await firestore
@@ -91,6 +109,10 @@ export default function Home() {
                 lastMessageTime,
                 unreadCount: 0, // TODO: Implement unread count
                 profileImageUrl: userData?.profileImageUrl,
+                isPinned,
+                isMuted,
+                isFavorite,
+                chatId: chatDoc.id,
               });
             }
           } catch (error) {
@@ -104,6 +126,10 @@ export default function Home() {
               lastMessageType,
               lastMessageTime,
               unreadCount: 0,
+              isPinned,
+              isMuted,
+              isFavorite,
+              chatId: chatDoc.id,
             });
           }
         }
@@ -117,11 +143,30 @@ export default function Home() {
         try {
           return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
         } catch (error) {
+          console.error('Error sorting chat list:', error);
+          return 0;
+        }
+      });
+
+      // Separate pinned and unpinned chats
+      const pinned = chatList.filter(chat => chat.isPinned);
+      const unpinned = chatList.filter(chat => !chat.isPinned);
+      
+      // Sort pinned chats by last message time
+      pinned.sort((a, b) => {
+        if (!a.lastMessageTime && !b.lastMessageTime) return 0;
+        if (!a.lastMessageTime) return 1;
+        if (!b.lastMessageTime) return 0;
+        try {
+          return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
+        } catch (error) {
           return 0;
         }
       });
 
       setChatUsers(chatList);
+      setPinnedChats(pinned);
+      setUnpinnedChats(unpinned);
     } catch (error) {
       console.error('Error fetching chat history:', error);
       Alert.alert('Error', 'Failed to load chat history');
@@ -167,6 +212,12 @@ export default function Home() {
               const lastMessageType = chatData.lastMessageType || 'text';
               const lastMessageTime = chatData.lastMessageTime || null;
 
+              // Get chat metadata for pin, mute, and favorite status
+              const chatMetadata = chatData.metadata?.[userData.uid] || {};
+              const isPinned = chatMetadata.isPinned || false;
+              const isMuted = chatMetadata.isMuted || false;
+              const isFavorite = chatMetadata.isFavorite || false;
+
               // Get user details from users collection
               try {
                 const userDoc = await firestore
@@ -185,6 +236,10 @@ export default function Home() {
                     lastMessageTime,
                     unreadCount: 0, // TODO: Implement unread count
                     profileImageUrl: userData?.profileImageUrl,
+                    isPinned,
+                    isMuted,
+                    isFavorite,
+                    chatId: chatDoc.id,
                   });
                 }
               } catch (error) {
@@ -198,6 +253,10 @@ export default function Home() {
                   lastMessageType,
                   lastMessageTime,
                   unreadCount: 0,
+                  isPinned,
+                  isMuted,
+                  isFavorite,
+                  chatId: chatDoc.id,
                 });
               }
             }
@@ -211,11 +270,30 @@ export default function Home() {
             try {
               return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
             } catch (error) {
+              console.error('Error sorting chat list:', error);
+              return 0;
+            }
+          });
+
+          // Separate pinned and unpinned chats
+          const pinned = chatList.filter(chat => chat.isPinned);
+          const unpinned = chatList.filter(chat => !chat.isPinned);
+          
+          // Sort pinned chats by last message time
+          pinned.sort((a, b) => {
+            if (!a.lastMessageTime && !b.lastMessageTime) return 0;
+            if (!a.lastMessageTime) return 1;
+            if (!b.lastMessageTime) return 0;
+            try {
+              return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
+            } catch (error) {
               return 0;
             }
           });
 
           setChatUsers(chatList);
+          setPinnedChats(pinned);
+          setUnpinnedChats(unpinned);
         } catch (error) {
           console.error('Error updating chat list:', error);
         }
@@ -273,10 +351,175 @@ export default function Home() {
     });
   };
 
+  // Chat management functions
+  const toggleChatSelection = (chatId: string) => {
+    const newSelection = new Set(selectedChats);
+    if (newSelection.has(chatId)) {
+      newSelection.delete(chatId);
+    } else {
+      newSelection.add(chatId);
+    }
+    setSelectedChats(newSelection);
+    
+    if (newSelection.size === 0) {
+      setIsSelectionMode(false);
+    } else if (!isSelectionMode) {
+      setIsSelectionMode(true);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedChats(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const togglePinChat = async (chatUser: ChatUser) => {
+    if (!chatUser.chatId || !userData?.uid) return;
+    
+    try {
+      const newPinStatus = !chatUser.isPinned;
+      
+      // Check if trying to pin more than 3 chats
+      if (newPinStatus && pinnedChats.length >= 3) {
+        Alert.alert('Pin Limit Reached', 'You can only pin a maximum of 3 chats at a time.');
+        return;
+      }
+      
+      // Update chat metadata in Firestore
+      await firestore.collection('chats').doc(chatUser.chatId).update({
+        [`metadata.${userData.uid}.isPinned`]: newPinStatus
+      });
+      
+      // Update local state
+      setChatUsers(prev => prev.map(chat => 
+        chat.uid === chatUser.uid 
+          ? { ...chat, isPinned: newPinStatus }
+          : chat
+      ));
+      
+      // Refresh the chat list to update pinned/unpinned separation
+      fetchChatHistory();
+      
+    } catch (error) {
+      console.error('Error toggling pin status:', error);
+      Alert.alert('Error', 'Failed to update pin status');
+    }
+  };
+
+  const toggleMuteChat = async (chatUser: ChatUser) => {
+    if (!chatUser.chatId || !userData?.uid) return;
+    
+    try {
+      const newMuteStatus = !chatUser.isMuted;
+      
+      // Update chat metadata in Firestore
+      await firestore.collection('chats').doc(chatUser.chatId).update({
+        [`metadata.${userData.uid}.isMuted`]: newMuteStatus
+      });
+      
+      // Update local state
+      setChatUsers(prev => prev.map(chat => 
+        chat.uid === chatUser.uid 
+          ? { ...chat, isMuted: newMuteStatus }
+          : chat
+      ));
+      
+    } catch (error) {
+      console.error('Error toggling mute status:', error);
+      Alert.alert('Error', 'Failed to update mute status');
+    }
+  };
+
+  const toggleFavoriteChat = async (chatUser: ChatUser) => {
+    if (!chatUser.chatId || !userData?.uid) return;
+    
+    try {
+      const newFavoriteStatus = !chatUser.isFavorite;
+      
+      // Update chat metadata in Firestore
+      await firestore.collection('chats').doc(chatUser.chatId).update({
+        [`metadata.${userData.uid}.isFavorite`]: newFavoriteStatus
+      });
+      
+      // Update local state
+      setChatUsers(prev => prev.map(chat => 
+        chat.uid === chatUser.uid 
+          ? { ...chat, isFavorite: newFavoriteStatus }
+          : chat
+      ));
+      
+    } catch (error) {
+      console.error('Error toggling favorite status:', error);
+      Alert.alert('Error', 'Failed to update favorite status');
+    }
+  };
+
+  const deleteChat = async (chatUser: ChatUser) => {
+    if (!chatUser.chatId || !userData?.uid) return;
+    
+    Alert.alert(
+      'Delete Chat',
+      `Are you sure you want to delete your chat with ${chatUser.name}? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Remove user from chat participants
+              await firestore.collection('chats').doc(chatUser.chatId).update({
+                participants: FieldValue.arrayRemove(userData.uid)
+              });
+              
+              // Remove from local state
+              setChatUsers(prev => prev.filter(chat => chat.uid !== chatUser.uid));
+              setSelectedChats(prev => {
+                const newSelection = new Set(prev);
+                newSelection.delete(chatUser.uid);
+                return newSelection;
+              });
+              
+              // Clear selection if no chats selected
+              if (selectedChats.size === 1) {
+                setIsSelectionMode(false);
+              }
+              
+              Alert.alert('Success', 'Chat deleted successfully');
+            } catch (error) {
+              console.error('Error deleting chat:', error);
+              Alert.alert('Error', 'Failed to delete chat');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLongPress = (chatUser: ChatUser) => {
+    if (!isSelectionMode) {
+      setIsSelectionMode(true);
+    }
+    toggleChatSelection(chatUser.uid);
+  };
+
   const filteredChatUsers = chatUsers.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.phoneNumber.includes(searchQuery)
   );
+
+  // Separate filtered chats into pinned and unpinned
+  const filteredPinnedChats = pinnedChats.filter(user =>
+    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    user.phoneNumber.includes(searchQuery)
+  );
+  const filteredUnpinnedChats = unpinnedChats.filter(user =>
+    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    user.phoneNumber.includes(searchQuery)
+  );
+
+  // Combine filtered chats with pinned first
+  const combinedFilteredChats = [...filteredPinnedChats, ...filteredUnpinnedChats];
 
   const formatLastMessageTime = (timestamp: any) => {
     if (!timestamp) return '';
@@ -304,6 +547,7 @@ export default function Home() {
         });
       }
     } catch (error) {
+      console.error('Error formatting last message time:', error);
       return '';
     }
   };
@@ -333,14 +577,13 @@ export default function Home() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      ['#667eea', '#764ba2'],
-      ['#f093fb', '#f5576c'],
-      ['#4facfe', '#00f2fe'],
-      ['#43e97b', '#38f9d7'],
-      ['#fa709a', '#fee140'],
-      ['#a8edea', '#fed6e3'],
-      ['#ffecd2', '#fcb69f'],
-      ['#ff8a80', '#ff7043'], 
+      ['#FF9A9E', '#FAD0C4'], // Sunset Glow
+  ['#43CEA2', '#185A9D'], // Ocean Breeze
+  ['#DA22FF', '#9733EE'], // Purple Bliss
+  ['#FDC830', '#F37335'], // Mango Sunrise
+  ['#36D1DC', '#5B86E5'], // Blue Lagoon
+  ['#FF9966', '#FF5E62'], // Berry Smoothie
+  ['#00F260', '#0575E6'],
     ];
     const index = name.charCodeAt(0) % gradients.length;
     return gradients[index];
@@ -348,13 +591,45 @@ export default function Home() {
 
   const renderChatItem = ({ item }: { item: ChatUser }) => {
     const [color1, color2] = getAvatarGradient(item.name);
+    const isSelected = selectedChats.has(item.uid);
     
     return (
       <TouchableOpacity 
-        style={[styles.modernChatCard, { backgroundColor: theme.colors.card }]}
-        onPress={() => startChat(item)}
+        style={[
+          styles.modernChatCard, 
+          { 
+            borderBottomColor: theme.colors.border, 
+            borderBottomWidth: 1,
+            backgroundColor: isSelected ? 'rgba(102, 126, 234, 0.1)' : 'transparent',
+          }
+        ]}
+        onPress={() => {
+          if (isSelectionMode) {
+            toggleChatSelection(item.uid);
+          } else {
+            startChat(item);
+          }
+        }}
+        onLongPress={() => handleLongPress(item)}
         activeOpacity={0.7}
       >
+        {/* Selection Checkbox */}
+        {isSelectionMode && (
+          <View style={styles.selectionCheckbox}>
+            <View style={[
+              styles.checkbox,
+              { 
+                backgroundColor: isSelected ? '#667eea' : 'transparent',
+                borderColor: isSelected ? '#667eea' : theme.colors.border,
+              }
+            ]}>
+              {isSelected && (
+                <Ionicons name="checkmark" size={16} color="#ffffff" />
+              )}
+            </View>
+          </View>
+        )}
+
         <View style={styles.chatAvatarContainer}>
           {item.profileImageUrl ? (
             <View style={styles.profileImageContainer}>
@@ -372,27 +647,50 @@ export default function Home() {
               </Text>
             </LinearGradient>
           )}
-          {/* Online indicator can be added here if needed */}
+          
+          {/* Pin indicator */}
+          {item.isPinned && (
+            <View style={styles.pinIndicator}>
+              <Ionicons name="pin" size={12} color="#FFD700" />
+            </View>
+          )}
         </View>
         
-        <View style={styles.modernChatInfo}>
-          <View style={styles.modernChatHeader}>
-            <Text style={[styles.modernChatName, { color: theme.colors.text }]} numberOfLines={1}>
-              {item.name}
-            </Text>
+        <View style={[styles.modernChatInfo]}>
+          <View style={[styles.modernChatHeader]}>
+            <View style={[styles.nameAndStatus]}>
+              <Text style={[styles.modernChatName, { color: theme.colors.text }]} numberOfLines={1}>
+                {item.name}
+              </Text>
+              {/* Status indicators */}
+              <View style={styles.statusIndicators}>
+                {item.isMuted && (
+                  <Ionicons name="volume-mute" size={14} color={theme.colors.textTertiary} />
+                )}
+                {item.isFavorite && (
+                  <Ionicons name="heart" size={14} color="#ff6b6b" />
+                )}
+              </View>
+            </View>
             <Text style={[styles.modernChatTime, { color: theme.colors.textSecondary }]}>
               {formatLastMessageTime(item.lastMessageTime)}
             </Text>
           </View>
           <Text 
-            style={[styles.modernLastMessage, { color: theme.colors.textSecondary }]}
+            style={[
+              styles.modernLastMessage, 
+              { 
+                color: item.isMuted ? theme.colors.textTertiary : theme.colors.textSecondary,
+                fontStyle: item.isMuted ? 'italic' : 'normal',
+              }
+            ]}
             numberOfLines={1}
           >
             {getLastMessageDisplay(item.lastMessage, item.lastMessageType)}
           </Text>
         </View>
         
-        {item.unreadCount > 0 && (
+        {item.unreadCount > 0 && !item.isMuted && (
           <View style={styles.modernUnreadBadge}>
             <LinearGradient
               colors={[color1, color2]}
@@ -431,21 +729,45 @@ export default function Home() {
         >
           <View style={styles.headerContent}>
             <View style={styles.headerTextContainer}>
-              <Text style={styles.headerTitle}>Chats</Text>
+              <Text style={styles.headerTitle}>
+                {isSelectionMode ? `${selectedChats.size} selected` : 'Chats'}
+              </Text>
               <Text style={styles.headerSubtitle}>
-                {chatUsers.length > 0 
-                  ? `${chatUsers.length} conversation${chatUsers.length !== 1 ? 's' : ''}` 
-                  : 'Start your first conversation'
+                {isSelectionMode 
+                  ? 'Select actions for the chosen chats'
+                  : chatUsers.length > 0 
+                    ? `${chatUsers.length} conversation${chatUsers.length !== 1 ? 's' : ''}` 
+                    : 'Start your first conversation'
                 }
               </Text>
             </View>
-            <TouchableOpacity 
-              style={styles.headerActionButton}
-              onPress={() => router.push('/(tabs)/contacts')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="person-add" size={20} color="rgba(255,255,255,0.9)" />
-            </TouchableOpacity>
+            
+            {isSelectionMode ? (
+              <View style={styles.selectionActions}>
+                <TouchableOpacity 
+                  style={styles.headerActionButton}
+                  onPress={clearSelection}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={20} color="rgba(255,255,255,0.9)" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.headerActionButton}
+                  onPress={() => setShowActionMenu(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="ellipsis-vertical" size={20} color="rgba(255,255,255,0.9)" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.headerActionButton}
+                onPress={() => router.push('/(tabs)/contacts')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-add" size={20} color="rgba(255,255,255,0.9)" />
+              </TouchableOpacity>
+            )}
           </View>
         </LinearGradient>
       </View>
@@ -481,9 +803,9 @@ export default function Home() {
       </View>
 
       {/* Modern Chat List */}
-      {filteredChatUsers.length > 0 ? (
+      {combinedFilteredChats.length > 0 ? (
         <FlatList
-          data={filteredChatUsers}
+          data={combinedFilteredChats}
           renderItem={renderChatItem}
           keyExtractor={(item) => item.uid}
           style={styles.modernChatList}
@@ -545,6 +867,154 @@ export default function Home() {
           </View>
         </View>
       )}
+
+      {/* Action Menu Modal */}
+      <Modal
+        visible={showActionMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActionMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.actionMenuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowActionMenu(false)}
+        >
+          <View style={[styles.actionMenu, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.actionMenuHeader}>
+              <Text style={[styles.actionMenuTitle, { color: theme.colors.text }]}>
+                Chat Actions
+              </Text>
+              <Text style={[styles.actionMenuSubtitle, { color: theme.colors.textSecondary }]}>
+                {selectedChats.size} chat{selectedChats.size !== 1 ? 's' : ''} selected
+              </Text>
+            </View>
+            
+            <View style={styles.actionMenuContent}>
+              {/* Pin/Unpin Action */}
+              <TouchableOpacity
+                style={styles.actionMenuItem}
+                onPress={() => {
+                  const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                  const hasUnpinnedChats = selectedChatUsers.some(chat => !chat.isPinned);
+                  
+                  if (hasUnpinnedChats) {
+                    // Check if pinning would exceed limit
+                    const currentPinnedCount = pinnedChats.length;
+                    const unpinnedSelectedCount = selectedChatUsers.filter(chat => !chat.isPinned).length;
+                    
+                    if (currentPinnedCount + unpinnedSelectedCount > 3) {
+                      Alert.alert('Pin Limit Reached', 'You can only pin a maximum of 3 chats at a time.');
+                      return;
+                    }
+                  }
+                  
+                  // Toggle pin status for all selected chats
+                  selectedChatUsers.forEach(chat => {
+                    if (chat.chatId) {
+                      togglePinChat(chat);
+                    }
+                  });
+                  setShowActionMenu(false);
+                  setIsSelectionMode(false);
+                  setSelectedChats(new Set());
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.actionIcon}>
+                  <Ionicons name="pin" size={20} color="#FFD700" />
+                </View>
+                <Text style={[styles.actionText, { color: theme.colors.text }]}>
+                  Pin/Unpin Chats
+                </Text>
+              </TouchableOpacity>
+
+              {/* Mute/Unmute Action */}
+              <TouchableOpacity
+                style={styles.actionMenuItem}
+                onPress={() => {
+                  const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                  selectedChatUsers.forEach(chat => {
+                    if (chat.chatId) {
+                      toggleMuteChat(chat);
+                    }
+                  });
+                  setShowActionMenu(false);
+                  setIsSelectionMode(false);
+                  setSelectedChats(new Set());
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.actionIcon}>
+                  <Ionicons name="volume-mute" size={20} color="#ff6b6b" />
+                </View>
+                <Text style={[styles.actionText, { color: theme.colors.text }]}>
+                  Mute/Unmute Chats
+                </Text>
+              </TouchableOpacity>
+
+              {/* Favorite/Unfavorite Action */}
+              <TouchableOpacity
+                style={styles.actionMenuItem}
+                onPress={() => {
+                  const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                  selectedChatUsers.forEach(chat => {
+                    if (chat.chatId) {
+                      toggleFavoriteChat(chat);
+                    }
+                  });
+                  setShowActionMenu(false);
+                  setIsSelectionMode(false);
+                  setSelectedChats(new Set());
+                  }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.actionIcon}>
+                  <Ionicons name="heart" size={20} color="#ff6b6b" />
+                </View>
+                <Text style={[styles.actionText, { color: theme.colors.text }]}>
+                  Favorite/Unfavorite Chats
+                </Text>
+              </TouchableOpacity>
+
+              {/* Delete Action */}
+              <TouchableOpacity
+                style={styles.actionMenuItem}
+                onPress={() => {
+                  Alert.alert(
+                    'Delete Chats',
+                    `Are you sure you want to delete ${selectedChats.size} chat${selectedChats.size !== 1 ? 's' : ''}? This action cannot be undone.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                          for (const chat of selectedChatUsers) {
+                            await deleteChat(chat);
+                          }
+                          setShowActionMenu(false);
+                          setIsSelectionMode(false);
+                          setSelectedChats(new Set());
+                        },
+                      },
+                    ]
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.actionIcon}>
+                  <Ionicons name="trash" size={20} color="#ff4757" />
+                </View>
+                <Text style={[styles.actionText, { color: '#ff4757' }]}>
+                  Delete Chats
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -610,6 +1080,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  selectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
 
   // Modern search styles
   searchSection: {
@@ -644,7 +1118,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modernListContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
     paddingVertical: 16,
   },
   chatSeparator: {
@@ -656,28 +1130,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)',
+    padding: 12,
+    borderBottomWidth: 1,
+    // borderBottomColor: 'rgba(0, 0, 0, 0.14)',
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.08,
+    // shadowRadius: 8,
+    // elevation: 4,
+    // borderWidth: 0.5,
+    // borderColor: 'rgba(0,0,0,0.05)',
   },
   chatAvatarContainer: {
     marginRight: 12,
+    flexShrink: 0,
   },
   profileImageContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
   },
   profileImage: {
     width: '100%',
@@ -689,11 +1161,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
   },
   modernChatAvatarText: {
     fontSize: 18,
@@ -708,6 +1175,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+    width: '100%',
   },
   modernChatName: {
     fontSize: 16,
@@ -718,6 +1186,9 @@ const styles = StyleSheet.create({
   modernChatTime: {
     fontSize: 12,
     fontWeight: '500',
+    flexShrink: 0,
+    textAlign: 'right',
+    minWidth: 50,
   },
   modernLastMessage: {
     fontSize: 14,
@@ -728,6 +1199,7 @@ const styles = StyleSheet.create({
   // Modern unread badge
   modernUnreadBadge: {
     marginLeft: 8,
+    flexShrink: 0,
   },
   unreadBadgeGradient: {
     minWidth: 20,
@@ -822,6 +1294,97 @@ const styles = StyleSheet.create({
   floatingRefreshText: {
     marginLeft: 8,
     fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Selection mode styles
+  selectionCheckbox: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    zIndex: 1,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pinIndicator: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 10,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  statusIndicators: {
+    flexDirection: 'row',
+    marginTop: 4,
+    marginLeft: 4,
+    flexShrink: 0,
+  },
+  nameAndStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  // Action Menu Modal Styles
+  actionMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionMenu: {
+    width: '80%',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  actionMenuHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  actionMenuTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  actionMenuSubtitle: {
+    fontSize: 14,
+  },
+  actionMenuContent: {
+    padding: 15,
+  },
+  actionMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  actionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  actionText: {
+    fontSize: 16,
     fontWeight: '500',
   },
 });
