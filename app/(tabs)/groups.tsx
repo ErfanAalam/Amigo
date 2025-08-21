@@ -6,16 +6,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Modal,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useTheme } from '../../context/ThemeContext';
 
@@ -32,6 +33,7 @@ interface Group {
   members: string[];
   admins: string[];
   inviteCode?: string;
+  profileImageUrl?: string;
 }
 
 export default function Groups() {
@@ -244,16 +246,22 @@ export default function Groups() {
         activeOpacity={0.8}
       >
         <View style={styles.modernGroupHeader}>
-          <LinearGradient
-            colors={[color1, color2]}
-            style={styles.modernGroupAvatar}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Text style={styles.modernGroupAvatarText}>
-              {item.name.charAt(0).toUpperCase()}
-            </Text>
-          </LinearGradient>
+          {item.profileImageUrl ? (
+            <View style={styles.modernGroupAvatar}>
+              <Image source={{ uri: item.profileImageUrl }} style={styles.modernGroupAvatarImage} />
+            </View>
+          ) : (
+            <LinearGradient
+              colors={[color1, color2]}
+              style={styles.modernGroupAvatar}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.modernGroupAvatarText}>
+                {item.name.charAt(0).toUpperCase()}
+              </Text>
+            </LinearGradient>
+          )}
           <View style={styles.modernGroupInfo}>
             <View style={styles.groupNameRow}>
               <Text style={[styles.modernGroupName, { color: theme.colors.text }]} numberOfLines={1}>
@@ -671,6 +679,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 4,
+  },
+  modernGroupAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 25,
   },
   modernGroupAvatarText: {
     fontSize: 20,

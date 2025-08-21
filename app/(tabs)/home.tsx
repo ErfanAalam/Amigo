@@ -160,6 +160,7 @@ export default function Home() {
         try {
           return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
         } catch (error) {
+          console.error('Error sorting pinned chats:', error);
           return 0;
         }
       });
@@ -287,6 +288,7 @@ export default function Home() {
             try {
               return b.lastMessageTime.toDate() - a.lastMessageTime.toDate();
             } catch (error) {
+              console.error('Error sorting chat list:', error);
               return 0;
             }
           });
@@ -502,11 +504,6 @@ export default function Home() {
     }
     toggleChatSelection(chatUser.uid);
   };
-
-  const filteredChatUsers = chatUsers.filter(user =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.phoneNumber.includes(searchQuery)
-  );
 
   // Separate filtered chats into pinned and unpinned
   const filteredPinnedChats = pinnedChats.filter(user =>
@@ -744,20 +741,27 @@ export default function Home() {
             
             {isSelectionMode ? (
               <View style={styles.selectionActions}>
-                <TouchableOpacity 
+                
+                {
+                  showActionMenu ? (
+                    <TouchableOpacity 
                   style={styles.headerActionButton}
                   onPress={clearSelection}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="close" size={20} color="rgba(255,255,255,0.9)" />
                 </TouchableOpacity>
-                <TouchableOpacity 
+                  ) : (
+                    <TouchableOpacity 
                   style={styles.headerActionButton}
                   onPress={() => setShowActionMenu(true)}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="ellipsis-vertical" size={20} color="rgba(255,255,255,0.9)" />
                 </TouchableOpacity>
+                  )
+                }
+                
               </View>
             ) : (
               <TouchableOpacity 
@@ -922,10 +926,38 @@ export default function Home() {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionIcon}>
-                  <Ionicons name="pin" size={20} color="#FFD700" />
+                  <Ionicons 
+                    name={(() => {
+                      const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                      const hasPinnedChats = selectedChatUsers.some(chat => chat.isPinned);
+                      const hasUnpinnedChats = selectedChatUsers.some(chat => !chat.isPinned);
+                      
+                      if (hasPinnedChats && hasUnpinnedChats) {
+                        return 'pin';
+                      } else if (hasPinnedChats) {
+                        return 'pin-outline';
+                      } else {
+                        return 'pin';
+                      }
+                    })()} 
+                    size={20} 
+                    color="#FFD700" 
+                  />
                 </View>
                 <Text style={[styles.actionText, { color: theme.colors.text }]}>
-                  Pin/Unpin Chats
+                  {(() => {
+                    const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                    const hasPinnedChats = selectedChatUsers.some(chat => chat.isPinned);
+                    const hasUnpinnedChats = selectedChatUsers.some(chat => !chat.isPinned);
+                    
+                    if (hasPinnedChats && hasUnpinnedChats) {
+                      return 'Pin/Unpin Chats';
+                    } else if (hasPinnedChats) {
+                      return 'Unpin Chats';
+                    } else {
+                      return 'Pin Chats';
+                    }
+                  })()}
                 </Text>
               </TouchableOpacity>
 
@@ -946,10 +978,38 @@ export default function Home() {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionIcon}>
-                  <Ionicons name="volume-mute" size={20} color="#ff6b6b" />
+                  <Ionicons 
+                    name={(() => {
+                      const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                      const hasMutedChats = selectedChatUsers.some(chat => chat.isMuted);
+                      const hasUnmutedChats = selectedChatUsers.some(chat => !chat.isMuted);
+                      
+                      if (hasMutedChats && hasUnmutedChats) {
+                        return 'volume-mute';
+                      } else if (hasMutedChats) {
+                        return 'volume-high';
+                      } else {
+                        return 'volume-mute';
+                      }
+                    })()} 
+                    size={20} 
+                    color="#ff6b6b" 
+                  />
                 </View>
                 <Text style={[styles.actionText, { color: theme.colors.text }]}>
-                  Mute/Unmute Chats
+                  {(() => {
+                    const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                    const hasMutedChats = selectedChatUsers.some(chat => chat.isMuted);
+                    const hasUnmutedChats = selectedChatUsers.some(chat => !chat.isMuted);
+                    
+                    if (hasMutedChats && hasUnmutedChats) {
+                      return 'Mute/Unmute Chats';
+                    } else if (hasMutedChats) {
+                      return 'Unmute Chats';
+                    } else {
+                      return 'Mute Chats';
+                    }
+                  })()}
                 </Text>
               </TouchableOpacity>
 
@@ -970,10 +1030,38 @@ export default function Home() {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionIcon}>
-                  <Ionicons name="heart" size={20} color="#ff6b6b" />
+                  <Ionicons 
+                    name={(() => {
+                      const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                      const hasFavoriteChats = selectedChatUsers.some(chat => chat.isFavorite);
+                      const hasUnfavoriteChats = selectedChatUsers.some(chat => !chat.isFavorite);
+                      
+                      if (hasFavoriteChats && hasUnfavoriteChats) {
+                        return 'heart';
+                      } else if (hasFavoriteChats) {
+                        return 'heart-outline';
+                      } else {
+                        return 'heart';
+                      }
+                    })()} 
+                    size={20} 
+                    color="#ff6b6b" 
+                  />
                 </View>
                 <Text style={[styles.actionText, { color: theme.colors.text }]}>
-                  Favorite/Unfavorite Chats
+                  {(() => {
+                    const selectedChatUsers = chatUsers.filter(chat => selectedChats.has(chat.uid));
+                    const hasFavoriteChats = selectedChatUsers.some(chat => chat.isFavorite);
+                    const hasUnfavoriteChats = selectedChatUsers.some(chat => !chat.isFavorite);
+                    
+                    if (hasFavoriteChats && hasUnfavoriteChats) {
+                      return 'Favorite/Unfavorite Chats';
+                    } else if (hasFavoriteChats) {
+                      return 'Unfavorite Chats';
+                    } else {
+                      return 'Favorite Chats';
+                    }
+                  })()}
                 </Text>
               </TouchableOpacity>
 
@@ -1132,14 +1220,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     borderBottomWidth: 1,
-    // borderBottomColor: 'rgba(0, 0, 0, 0.14)',
-    // shadowColor: '#000',
-    // shadowOffset: { width: 0, height: 2 },
-    // shadowOpacity: 0.08,
-    // shadowRadius: 8,
-    // elevation: 4,
-    // borderWidth: 0.5,
-    // borderColor: 'rgba(0,0,0,0.05)',
   },
   chatAvatarContainer: {
     marginRight: 12,
@@ -1338,18 +1418,28 @@ const styles = StyleSheet.create({
   // Action Menu Modal Styles
   actionMenuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'absolute',
+    zIndex: 1000,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   actionMenu: {
-    width: '80%',
-    borderRadius: 20,
+    width: '70%',
+    borderRadius: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 10,
     elevation: 10,
+    position: 'absolute',
+    zIndex: 1000,
+    top: 80,
+    right: 20,
   },
   actionMenuHeader: {
     padding: 20,

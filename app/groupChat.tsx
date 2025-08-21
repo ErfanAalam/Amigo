@@ -43,6 +43,20 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 //     isAdmin: boolean;
 // }
 
+interface Group {
+  id: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  createdAt: any;
+  memberCount: number;
+  isPrivate: boolean;
+  members: string[];
+  admins: string[];
+  inviteCode?: string;
+  profileImageUrl?: string;
+}
+
 export default function GroupChatPage() {
     const params = useLocalSearchParams();
     const groupId = params.groupId as string;
@@ -55,6 +69,7 @@ export default function GroupChatPage() {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
     // const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+    const [group, setGroup] = useState<Group | null>(null);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
     const [uploadingMedia, setUploadingMedia] = useState(false);
     const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
@@ -166,6 +181,24 @@ export default function GroupChatPage() {
 
         return () => unsubscribe();
     }, [groupId, userData?.uid]);
+
+    // Fetch group details
+    useEffect(() => {
+        if (!groupId) return;
+
+        const fetchGroupDetails = async () => {
+            try {
+                const groupDoc = await firestore.collection('groups').doc(groupId).get();
+                if (groupDoc.exists) {
+                    setGroup({ id: groupDoc.id, ...groupDoc.data() } as Group);
+                }
+            } catch (error) {
+                console.error('Error fetching group details:', error);
+            }
+        };
+
+        fetchGroupDetails();
+    }, [groupId]);
 
     // Cleanup audio resources
     useEffect(() => {
@@ -1000,16 +1033,20 @@ export default function GroupChatPage() {
 
                             <View style={styles.modernHeaderInfo}>
                                 <View style={styles.chatUserAvatar}>
-                                    <LinearGradient
-                                        colors={[headerColor1, headerColor2]}
-                                        style={styles.headerAvatarGradient}
-                                        start={{ x: 0, y: 0 }}
-                                        end={{ x: 1, y: 1 }}
-                                    >
-                                        <Text style={[styles.headerAvatarText, { color: '#000' }]}>
-                                            {groupName?.charAt(0)?.toUpperCase() || 'G'}
-                                        </Text>
-                                    </LinearGradient>
+                                    {group?.profileImageUrl ? (
+                                        <Image source={{ uri: group.profileImageUrl }} style={styles.headerAvatarImage} />
+                                    ) : (
+                                        <LinearGradient
+                                            colors={[headerColor1, headerColor2]}
+                                            style={styles.headerAvatarGradient}
+                                            start={{ x: 0, y: 0 }}
+                                            end={{ x: 1, y: 1 }}
+                                        >
+                                            <Text style={[styles.headerAvatarText, { color: '#000' }]}>
+                                                {groupName?.charAt(0)?.toUpperCase() || 'G'}
+                                            </Text>
+                                        </LinearGradient>
+                                    )}
                                 </View>
                                 <View style={styles.headerTextContainer}>
                                     <Text style={[styles.modernHeaderName, { color: '#ffffff' }]}>{groupName || 'Group Chat'}</Text>
@@ -1684,6 +1721,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.2,
         shadowRadius: 4,
         elevation: 4,
+    },
+    headerAvatarImage: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
     },
     headerAvatarText: {
         fontSize: 18,
