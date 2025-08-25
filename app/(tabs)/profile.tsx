@@ -185,7 +185,7 @@ export default function Profile() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      ['#667eea', '#764ba2'],
+      ['#0d9488', '#10b981'],
       // ['#f093fb', '#f5576c'],
       // ['#4facfe', '#00f2fe'],
       // ['#43e97b', '#38f9d7'],
@@ -216,7 +216,7 @@ export default function Profile() {
       {/* Modern Header with Gradient */}
       <View style={styles.modernHeader}>
         <LinearGradient
-          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : [color1, color2]}
+          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : ['#0d9488', '#10b981']}
           style={styles.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}

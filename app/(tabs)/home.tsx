@@ -33,6 +33,9 @@ interface ChatUser {
   isMuted?: boolean;
   isFavorite?: boolean;
   chatId?: string; // Add chatId for operations
+  isOnline?: boolean;
+  lastSeen?: any;
+  isTyping?: boolean;
 }
 
 export default function Home() {
@@ -51,6 +54,8 @@ export default function Home() {
   const [pinnedChats, setPinnedChats] = useState<ChatUser[]>([]);
   const [unpinnedChats, setUnpinnedChats] = useState<ChatUser[]>([]);
   const [showActionMenu, setShowActionMenu] = useState(false);
+  
+
 
   const fetchChatHistory = useCallback(async () => {
     if (!userData?.uid) return;
@@ -113,6 +118,9 @@ export default function Home() {
                 isMuted,
                 isFavorite,
                 chatId: chatDoc.id,
+                isOnline: userData?.isOnline || false,
+                lastSeen: userData?.lastSeen || null,
+                isTyping: false, // Will be updated by real-time listener
               });
             }
           } catch (error) {
@@ -130,6 +138,9 @@ export default function Home() {
               isMuted,
               isFavorite,
               chatId: chatDoc.id,
+              isOnline: false,
+              lastSeen: null,
+              isTyping: false,
             });
           }
         }
@@ -241,24 +252,30 @@ export default function Home() {
                     isMuted,
                     isFavorite,
                     chatId: chatDoc.id,
+                    isOnline: userData?.isOnline || false,
+                    lastSeen: userData?.lastSeen || null,
+                    isTyping: false,
                   });
                 }
               } catch (error) {
                 console.error('Error fetching user data:', error);
                 // Add with available data
-                chatList.push({
-                  uid: otherUserId,
-                  name: otherUserName,
-                  phoneNumber: '',
-                  lastMessage,
-                  lastMessageType,
-                  lastMessageTime,
-                  unreadCount: 0,
-                  isPinned,
-                  isMuted,
-                  isFavorite,
-                  chatId: chatDoc.id,
-                });
+                                  chatList.push({
+                    uid: otherUserId,
+                    name: otherUserName,
+                    phoneNumber: '',
+                    lastMessage,
+                    lastMessageType,
+                    lastMessageTime,
+                    unreadCount: 0,
+                    isPinned,
+                    isMuted,
+                    isFavorite,
+                    chatId: chatDoc.id,
+                    isOnline: false,
+                    lastSeen: null,
+                    isTyping: false,
+                  });
               }
             }
           }
@@ -319,6 +336,114 @@ export default function Home() {
 
     return () => unsubscribeChatMetadata();
   }, [userData?.uid, debouncedRefresh]);
+
+  // Track online status and typing indicators
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    // Listen to online status changes
+    const unsubscribeOnlineStatus = firestore
+      .collection('users')
+      .onSnapshot((snapshot) => {
+        snapshot.forEach((doc) => {
+          const userData = doc.data();
+          if (doc.id !== userData?.uid) {
+            // Update individual user status without flickering
+            const isOnline = userData?.isOnline || false;
+            const lastSeen = userData?.lastSeen || null;
+            
+            setChatUsers(prevUsers => 
+              prevUsers.map(user => 
+                user.uid === doc.id ? { ...user, isOnline, lastSeen } : user
+              )
+            );
+            
+            setPinnedChats(prevPinned => 
+              prevPinned.map(user => 
+                user.uid === doc.id ? { ...user, isOnline, lastSeen } : user
+              )
+            );
+            
+            setUnpinnedChats(prevUnpinned => 
+              prevUnpinned.map(user => 
+                user.uid === doc.id ? { ...user, isOnline, lastSeen } : user
+              )
+            );
+          }
+        });
+      });
+
+    return () => unsubscribeOnlineStatus();
+  }, [userData?.uid]);
+
+  // Track typing indicators separately to avoid conflicts
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    // Listen to typing status changes in chats
+    const unsubscribeTyping = firestore
+      .collection('chats')
+      .where('participants', 'array-contains', userData.uid)
+      .onSnapshot((snapshot) => {
+        snapshot.forEach((doc) => {
+          const chatData = doc.data();
+          if (chatData?.typingUsers) {
+            Object.keys(chatData.typingUsers).forEach((uid) => {
+              if (uid !== userData.uid) {
+                // Update typing status without flickering
+                const isTyping = chatData.typingUsers[uid] || false;
+                
+                setChatUsers(prevUsers => 
+                  prevUsers.map(user => 
+                    user.uid === uid ? { ...user, isTyping } : user
+                  )
+                );
+                
+                setPinnedChats(prevPinned => 
+                  prevPinned.map(user => 
+                    user.uid === uid ? { ...user, isTyping } : user
+                  )
+                );
+                
+                setUnpinnedChats(prevUnpinned => 
+                  prevUnpinned.map(user => 
+                    user.uid === uid ? { ...user, isTyping } : user
+                  )
+                );
+              }
+            });
+          }
+        });
+      });
+
+    return () => unsubscribeTyping();
+  }, [userData?.uid]);
+
+  // Update user's online status
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    const updateOnlineStatus = async (isOnline: boolean) => {
+      try {
+        await firestore.collection('users').doc(userData.uid).update({
+          isOnline,
+          lastSeen: isOnline ? null : FieldValue.serverTimestamp(),
+        });
+      } catch (error) {
+        console.error('Error updating online status:', error);
+      }
+    };
+
+    // Set online when component mounts
+    updateOnlineStatus(true);
+
+    // Set offline when component unmounts
+    return () => {
+      updateOnlineStatus(false);
+    };
+  }, [userData?.uid]);
+
+
 
   // Refresh data when user returns to this screen
   useFocusEffect(
@@ -549,6 +674,42 @@ export default function Home() {
     }
   };
 
+  const formatLastSeen = (timestamp: any) => {
+    if (!timestamp) return '';
+    
+    try {
+      const date = timestamp.toDate();
+      const now = new Date();
+      const diffInMinutes = (now.getTime() - date.getTime()) / (1000 * 60);
+      
+      if (diffInMinutes < 1) {
+        return 'Just now';
+      } else if (diffInMinutes < 60) {
+        return `${Math.floor(diffInMinutes)}m ago`;
+      } else if (diffInMinutes < 1440) { // Less than 24 hours
+        return `Today at ${date.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        })}`;
+      } else if (diffInMinutes < 2880) { // Less than 48 hours
+        return `Yesterday at ${date.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        })}`;
+      } else {
+        return date.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    } catch (error) {
+      console.error('Error formatting last seen time:', error);
+      return '';
+    }
+  };
+
   const getLastMessageDisplay = (message: string, messageType?: string) => {
     if (!message) return 'No messages yet';
     
@@ -574,13 +735,14 @@ export default function Home() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      ['#FF9A9E', '#FAD0C4'], // Sunset Glow
-  ['#43CEA2', '#185A9D'], // Ocean Breeze
-  ['#DA22FF', '#9733EE'], // Purple Bliss
-  ['#FDC830', '#F37335'], // Mango Sunrise
-  ['#36D1DC', '#5B86E5'], // Blue Lagoon
-  ['#FF9966', '#FF5E62'], // Berry Smoothie
-  ['#00F260', '#0575E6'],
+  //     ['#FF9A9E', '#FAD0C4'], // Sunset Glow
+  // ['#43CEA2', '#185A9D'], // Ocean Breeze
+  // ['#DA22FF', '#9733EE'], // Purple Bliss
+  // ['#FDC830', '#F37335'], // Mango Sunrise
+  // ['#36D1DC', '#5B86E5'], // Blue Lagoon
+  // ['#FF9966', '#FF5E62'], // Berry Smoothie
+  // ['#00F260', '#0575E6'],
+  ['#0d9488', '#10b981']
     ];
     const index = name.charCodeAt(0) % gradients.length;
     return gradients[index];
@@ -673,18 +835,47 @@ export default function Home() {
               {formatLastMessageTime(item.lastMessageTime)}
             </Text>
           </View>
-          <Text 
-            style={[
-              styles.modernLastMessage, 
-              { 
-                color: item.isMuted ? theme.colors.textTertiary : theme.colors.textSecondary,
-                fontStyle: item.isMuted ? 'italic' : 'normal',
-              }
-            ]}
-            numberOfLines={1}
-          >
-            {getLastMessageDisplay(item.lastMessage, item.lastMessageType)}
-          </Text>
+          
+          {/* Online status and typing indicator */}
+          {item.isTyping ? (
+            <View style={styles.typingIndicator}>
+              <Text style={[styles.typingText, { color: theme.colors.primary }]}>
+                typing...
+              </Text>
+              <View style={styles.typingDots}>
+                <View style={[styles.typingDot, { backgroundColor: theme.colors.primary }]} />
+                <View style={[styles.typingDot, { backgroundColor: theme.colors.primary }]} />
+                <View style={[styles.typingDot, { backgroundColor: theme.colors.primary }]} />
+              </View>
+            </View>
+          ) : (
+            <Text 
+              style={[
+                styles.modernLastMessage, 
+                { 
+                  color: item.isMuted ? theme.colors.textTertiary : theme.colors.textSecondary,
+                  fontStyle: item.isMuted ? 'italic' : 'normal',
+                }
+              ]}
+              numberOfLines={1}
+            >
+              {getLastMessageDisplay(item.lastMessage, item.lastMessageType)}
+            </Text>
+          )}
+          
+          {/* Online status and last seen */}
+          <View style={styles.statusRow}>
+            {item.isOnline ? (
+              <View style={styles.onlineIndicator}>
+                <View style={[styles.onlineDot, { backgroundColor: '#10b981' }]} />
+                <Text style={[styles.statusText, { color: '#10b981' }]}>online</Text>
+              </View>
+            ) : (
+              <Text style={[styles.statusText, { color: theme.colors.textTertiary }]}>
+                {item.lastSeen ? `last seen ${formatLastSeen(item.lastSeen)}` : 'offline'}
+              </Text>
+            )}
+          </View>
         </View>
         
         {item.unreadCount > 0 && !item.isMuted && (
@@ -719,7 +910,7 @@ export default function Home() {
       {/* Modern Header */}
       <View style={[styles.modernHeader, { backgroundColor: theme.colors.surface }]}>
         <LinearGradient
-          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : ['#667eea', '#764ba2']}
+          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : ['#0d9488', '#10b981']}
           style={styles.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -773,11 +964,37 @@ export default function Home() {
               </TouchableOpacity>
             )}
           </View>
+          <View style={[styles.modernSearchContainer, { 
+          backgroundColor: theme.colors.card,
+          borderColor: searchQuery ? theme.colors.border : theme.colors.border,
+        }]}>
+          <Ionicons 
+            name="search" 
+            size={18} 
+            color={searchQuery ? theme.colors.textTertiary : theme.colors.textTertiary} 
+          />
+          <TextInput
+            style={[styles.modernSearchInput, { color: theme.colors.text }]}
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={theme.colors.textTertiary}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity 
+              onPress={() => setSearchQuery('')}
+              style={styles.searchClearButton}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={16} color={theme.colors.textTertiary} />
+            </TouchableOpacity>
+          )}
+        </View>
         </LinearGradient>
       </View>
 
       {/* Modern Search Bar */}
-      <View style={[styles.searchSection, { backgroundColor: theme.colors.background }]}>
+      {/* <View style={[styles.searchSection, { backgroundColor: theme.colors.background }]}>
         <View style={[styles.modernSearchContainer, { 
           backgroundColor: theme.colors.card,
           borderColor: searchQuery ? '#667eea' : theme.colors.border,
@@ -804,7 +1021,7 @@ export default function Home() {
             </TouchableOpacity>
           )}
         </View>
-      </View>
+      </View> */}
 
       {/* Modern Chat List */}
       {combinedFilteredChats.length > 0 ? (
@@ -1183,13 +1400,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 2,
     borderWidth: 1.5,
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    // shadowColor: '#667eea',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.1,
+    // shadowRadius: 8,
+    // elevation: 4,
+    marginTop:10
   },
   modernSearchInput: {
     flex: 1,
@@ -1475,6 +1693,48 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 16,
+    fontWeight: '500',
+  },
+
+  // Online status and typing indicator styles
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  typingText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginRight: 8,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  typingDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginHorizontal: 1,
+    opacity: 0.7,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  onlineIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 12,
     fontWeight: '500',
   },
 });

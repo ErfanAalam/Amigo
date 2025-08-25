@@ -1,21 +1,23 @@
 
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useTheme } from '../../context/ThemeContext';
 
@@ -50,13 +52,30 @@ export default function SignupScreen() {
         ? phoneNumber
         : `+91${phoneNumber}`;
       console.log("formattedPhone", formattedPhone);
-      const confirmation = await auth().signInWithPhoneNumber(formattedPhone,true);
+      
+      // For production, Firebase will automatically handle reCAPTCHA
+      const confirmation = await auth().signInWithPhoneNumber(formattedPhone);
       setVerificationId(confirmation.verificationId);
       setStep('otp');
       Alert.alert("OTP Sent", "Check your phone for the OTP.");
     } catch (error: any) {
       console.error("sendOTP error:", error);
-      Alert.alert("Error", error.message || "Failed to send OTP");
+      let errorMessage = "Failed to send OTP";
+      
+      // Handle specific Firebase errors
+      if (error.code === 'auth/invalid-phone-number') {
+        errorMessage = "Invalid phone number format";
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = "Too many requests. Please try again later.";
+      } else if (error.code === 'auth/quota-exceeded') {
+        errorMessage = "SMS quota exceeded. Please try again later.";
+      } else if (error.code === 'auth/missing-client-identifier') {
+        errorMessage = "Security check failed. Please try again or restart the app.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -130,20 +149,30 @@ export default function SignupScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-            {/* Theme Toggle Button */}
-            
-
-            {/* Header Section */}
+            {/* Header Section with Gradient */}
             <View style={styles.headerSection}>
-              <Text style={[styles.welcomeText, { color: theme.colors.text }]}>
-                {step === 'details' ? 'Create Account' : 'Enter OTP'}
-              </Text>
-              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-                {step === 'details' 
-                  ? 'Sign up with your details' 
-                  : `OTP sent to ${phoneNumber}`
-                }
-              </Text>
+              <LinearGradient
+                colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
+                style={styles.headerGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.logoContainer}>
+                  <View style={styles.logoCircle}>
+                    {/* <Text style={styles.logoText}>A</Text> */}
+                    <Image source={require('../../assets/images/amigo.png')} style={styles.logoImage} />
+                  </View>
+                </View>
+                <Text style={styles.welcomeText}>
+                  {step === 'details' ? 'Create Account' : 'Enter OTP'}
+                </Text>
+                <Text style={styles.subtitle}>
+                  {step === 'details' 
+                    ? 'Sign up with your details' 
+                    : `OTP sent to ${phoneNumber}`
+                  }
+                </Text>
+              </LinearGradient>
             </View>
 
             {/* Form Section */}
@@ -151,97 +180,129 @@ export default function SignupScreen() {
               {step === 'details' ? (
                 // User Details Input
                 <View style={styles.inputContainer}>
-                  <Text style={[styles.inputLabel, { color: theme.colors.text }]}>First Name</Text>
-                  <TextInput
-                    placeholder="Enter your first name"
-                    placeholderTextColor={theme.colors.inputPlaceholder}
-                    style={[styles.input, { 
-                      backgroundColor: theme.colors.inputBackground, 
-                      borderColor: theme.colors.inputBorder,
-                      color: theme.colors.inputText 
-                    }]}
-                    value={firstName}
-                    onChangeText={setFirstName}
-                    maxLength={30}
-                  />
+                  <View style={styles.inputWrapper}>
+                    <Text style={[styles.inputLabel, { color: theme.colors.text }]}>First Name</Text>
+                    <View style={[styles.textInputContainer, { 
+                      backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+                      borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+                    }]}>
+                      <TextInput
+                        placeholder="Enter your first name"
+                        placeholderTextColor={theme.colors.inputPlaceholder}
+                        style={[styles.textInput, { color: theme.colors.text }]}
+                        value={firstName}
+                        onChangeText={setFirstName}
+                        maxLength={30}
+                      />
+                    </View>
+                  </View>
 
-                  <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Last Name</Text>
-                  <TextInput
-                    placeholder="Enter your last name"
-                    placeholderTextColor={theme.colors.inputPlaceholder}
-                    style={[styles.input, { 
-                      backgroundColor: theme.colors.inputBackground, 
-                      borderColor: theme.colors.inputBorder,
-                      color: theme.colors.inputText 
-                    }]}
-                    value={lastName}
-                    onChangeText={setLastName}
-                    maxLength={30}
-                  />
+                  <View style={styles.inputWrapper}>
+                    <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Last Name</Text>
+                    <View style={[styles.textInputContainer, { 
+                      backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+                      borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+                    }]}>
+                      <TextInput
+                        placeholder="Enter your last name"
+                        placeholderTextColor={theme.colors.inputPlaceholder}
+                        style={[styles.textInput, { color: theme.colors.text }]}
+                        value={lastName}
+                        onChangeText={setLastName}
+                        maxLength={30}
+                      />
+                    </View>
+                  </View>
 
-                  <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Phone Number</Text>
-                  <View style={[styles.phoneInputContainer, { 
-                    backgroundColor: theme.colors.inputBackground, 
-                    borderColor: theme.colors.inputBorder 
-                  }]}>
-                    <Text style={[styles.countryCode, { color: theme.colors.text }]}>+91</Text>
-                    <TextInput
-                      placeholder="Enter your phone number"
-                      placeholderTextColor={theme.colors.inputPlaceholder}
-                      style={[styles.phoneInput, { color: theme.colors.inputText }]}
-                      keyboardType="phone-pad"
-                      value={phoneNumber}
-                      onChangeText={setPhoneNumber}
-                      maxLength={10}
-                    />
+                  <View style={styles.inputWrapper}>
+                    <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Phone Number</Text>
+                    <View style={[styles.phoneInputContainer, { 
+                      backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+                      borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+                      shadowColor: theme.isDark ? '#000' : '#0d9488',
+                    }]}>
+                      <View style={[styles.countryCodeContainer, { backgroundColor: theme.colors.primary }]}>
+                        <Text style={styles.countryCode}>+91</Text>
+                      </View>
+                      <TextInput
+                        placeholder="Enter your phone number"
+                        placeholderTextColor={theme.colors.inputPlaceholder}
+                        style={[styles.phoneInput, { color: theme.colors.text }]}
+                        keyboardType="phone-pad"
+                        value={phoneNumber}
+                        onChangeText={setPhoneNumber}
+                        maxLength={10}
+                      />
+                    </View>
                   </View>
                   
                   <TouchableOpacity
-                    style={[styles.signupButton, { backgroundColor: theme.colors.primary }, loading && styles.disabledButton]}
+                    style={styles.signupButton}
                     onPress={sendOTP}
                     disabled={loading}
+                    activeOpacity={0.8}
                   >
-                    {loading ? (
-                      <ActivityIndicator color={theme.colors.onPrimary} size="small" />
-                    ) : (
-                      <Text style={[styles.signupButtonText, { color: theme.colors.onPrimary }]}>Send OTP</Text>
-                    )}
+                    <LinearGradient
+                      colors={loading ? ['#ccc', '#ccc'] : ['#0d9488', '#10b981']}
+                      style={styles.buttonGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.signupButtonText}>Send OTP</Text>
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
                 </View>
               ) : (
                 // OTP Input
                 <View style={styles.inputContainer}>
-                  <Text style={[styles.inputLabel, { color: theme.colors.text }]}>OTP Code</Text>
-                  <TextInput
-                    placeholder="Enter 6-digit OTP"
-                    placeholderTextColor={theme.colors.inputPlaceholder}
-                    style={[styles.input, { 
-                      backgroundColor: theme.colors.inputBackground, 
-                      borderColor: theme.colors.inputBorder,
-                      color: theme.colors.inputText 
-                    }]}
-                    keyboardType="number-pad"
-                    value={otp}
-                    onChangeText={setOtp}
-                    maxLength={6}
-                  />
+                  <View style={styles.inputWrapper}>
+                    <Text style={[styles.inputLabel, { color: theme.colors.text }]}>OTP Code</Text>
+                    <View style={[styles.otpInputContainer, { 
+                      backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+                      borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+                    }]}>
+                      <TextInput
+                        placeholder="Enter 6-digit OTP"
+                        placeholderTextColor={theme.colors.inputPlaceholder}
+                        style={[styles.otpInput, { color: theme.colors.text }]}
+                        keyboardType="number-pad"
+                        value={otp}
+                        onChangeText={setOtp}
+                        maxLength={6}
+                        textAlign="center"
+                      />
+                    </View>
+                  </View>
                   
                   <TouchableOpacity
-                    style={[styles.signupButton, { backgroundColor: theme.colors.primary }, loading && styles.disabledButton]}
+                    style={styles.signupButton}
                     onPress={verifyOTP}
                     disabled={loading}
+                    activeOpacity={0.8}
                   >
-                    {loading ? (
-                      <ActivityIndicator color={theme.colors.onPrimary} size="small" />
-                    ) : (
-                      <Text style={[styles.signupButtonText, { color: theme.colors.onPrimary }]}>Verify & Create Account</Text>
-                    )}
+                    <LinearGradient
+                      colors={loading ? ['#ccc', '#ccc'] : ['#0d9488', '#10b981']}
+                      style={styles.buttonGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.signupButtonText}>Verify & Create Account</Text>
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.resendButton}
                     onPress={resendOTP}
                     disabled={loading}
+                    activeOpacity={0.7}
                   >
                     <Text style={[styles.resendButtonText, { color: theme.colors.primary }]}>Resend OTP</Text>
                   </TouchableOpacity>
@@ -249,6 +310,7 @@ export default function SignupScreen() {
                   <TouchableOpacity
                     style={styles.backButton}
                     onPress={goBackToDetails}
+                    activeOpacity={0.7}
                   >
                     <Text style={[styles.backButtonText, { color: theme.colors.textSecondary }]}>← Back to Details</Text>
                   </TouchableOpacity>
@@ -265,10 +327,11 @@ export default function SignupScreen() {
               {/* Login Button */}
               <TouchableOpacity
                 style={[styles.loginButton, { 
-                  backgroundColor: theme.colors.surfaceVariant, 
-                  borderColor: theme.colors.border 
+                  backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgba(255, 255, 255, 0.9)',
+                  borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
                 }]}
                 onPress={navigateToLogin}
+                activeOpacity={0.8}
               >
                 <Text style={[styles.loginButtonText, { color: theme.colors.text }]}>Already have an account? Login</Text>
               </TouchableOpacity>
@@ -284,7 +347,6 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   keyboardView: {
     flex: 1,
@@ -294,147 +356,207 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    minHeight: height * 0.9,
   },
   container: {
     flex: 1,
-    paddingHorizontal: Math.min(30, width * 0.08),
-    backgroundColor: '#fff',
-    paddingTop: Platform.OS === 'ios' ? 20 : 40,
-    paddingBottom: 40,
   },
   headerSection: {
+    marginBottom: 40,
+  },
+  headerGradient: {
+    paddingTop: 40,
+    paddingBottom: 60,
+    paddingHorizontal: 30,
     alignItems: 'center',
-    paddingTop: height * 0.05,
-    paddingBottom: height * 0.03,
-    minHeight: height * 0.15,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  logoContainer: {
+    marginBottom: 20,
+  },
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoText: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  logoImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 30,
   },
   welcomeText: {
-    fontSize: Math.min(28, width * 0.07),
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#ffffff',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   subtitle: {
-    fontSize: Math.min(16, width * 0.04),
-    color: '#666',
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
     paddingHorizontal: 20,
+    lineHeight: 22,
   },
   formSection: {
     flex: 1,
-    justifyContent: 'center',
-    paddingVertical: 20,
+    paddingHorizontal: 30,
+    paddingBottom: 40,
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 10,
+  },
+  inputWrapper: {
+    marginBottom: 25,
   },
   inputLabel: {
-    fontSize: Math.min(14, width * 0.035),
+    fontSize: 16,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-    marginLeft: 5,
-    marginTop: 15,
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  textInputContainer: {
+    borderRadius: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  textInput: {
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   phoneInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    overflow: 'hidden',
+  },
+  countryCodeContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopLeftRadius: 15,
+    borderBottomLeftRadius: 15,
   },
   countryCode: {
-    fontSize: Math.min(16, width * 0.04),
+    fontSize: 16,
     fontWeight: '600',
-    color: '#333',
-    paddingHorizontal: 15,
-    paddingVertical: 16,
+    color: '#ffffff',
   },
   phoneInput: {
     flex: 1,
-    fontSize: Math.min(16, width * 0.04),
-    color: '#333',
-    paddingVertical: 16,
-    paddingRight: 15,
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  input: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: Math.min(16, width * 0.04),
-    color: '#333',
+  otpInputContainer: {
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  otpInput: {
+    fontSize: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    fontWeight: '600',
   },
   signupButton: {
-    backgroundColor: '#007AFF',
-    marginTop: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  buttonGradient: {
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 50,
-  },
-  disabledButton: {
-    backgroundColor: '#ccc',
+    minHeight: 56,
   },
   signupButtonText: {
     color: '#FFFFFF',
-    fontSize: Math.min(16, width * 0.04),
+    fontSize: 16,
     fontWeight: '600',
   },
   resendButton: {
     alignItems: 'center',
-    marginTop: 15,
-    paddingVertical: 10,
+    marginTop: 20,
+    paddingVertical: 12,
   },
   resendButtonText: {
-    color: '#007AFF',
-    fontSize: Math.min(14, width * 0.035),
+    fontSize: 16,
     textDecorationLine: 'underline',
+    fontWeight: '500',
   },
   backButton: {
     alignItems: 'center',
-    marginTop: 10,
-    paddingVertical: 10,
+    marginTop: 15,
+    paddingVertical: 12,
   },
   backButtonText: {
-    color: '#666',
-    fontSize: Math.min(14, width * 0.035),
+    fontSize: 16,
+    fontWeight: '500',
   },
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 25,
+    marginVertical: 10,
   },
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: '#e9ecef',
   },
   dividerText: {
-    color: '#666',
-    paddingHorizontal: 15,
-    fontSize: Math.min(14, width * 0.035),
+    paddingHorizontal: 20,
+    fontSize: 16,
+    fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 16,
+    paddingVertical: 18,
     paddingHorizontal: 30,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e9ecef',
-    minHeight: 50,
+    minHeight: 56,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   loginButtonText: {
-    color: '#333',
-    fontSize: Math.min(16, width * 0.04),
+    fontSize: 14,
     fontWeight: '600',
   },
-
 });

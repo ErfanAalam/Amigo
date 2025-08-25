@@ -151,7 +151,7 @@ export default function GroupDetailsPage() {
               return {
                 uid: memberId,
                 displayName: userData?.displayName || 'Unknown',
-                isAdmin: groupData.admins.includes(memberId),
+                isAdmin: groupData.createdBy === memberId,
                 profileImageUrl: userData?.profileImageUrl,
               };
             }
@@ -161,7 +161,7 @@ export default function GroupDetailsPage() {
           return {
             uid: memberId,
             displayName: 'Unknown',
-            isAdmin: groupData.admins.includes(memberId),
+            isAdmin: groupData.createdBy === memberId,
           };
         });
 
@@ -493,7 +493,7 @@ export default function GroupDetailsPage() {
   };
 
   const isGroupAdmin = () => {
-    return group?.admins.includes(userData?.uid || '') || false;
+    return group?.createdBy === userData?.uid || false;
   };
 
   const isGroupCreator = () => {
@@ -704,11 +704,7 @@ export default function GroupDetailsPage() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      ['#FF9A9E', '#FAD0C4'],
-      ['#43CEA2', '#185A9D'],
-      ['#DA22FF', '#9733EE'],
-      ['#FDC830', '#F37335'],
-      ['#36D1DC', '#5B86E5'],
+      ['#0d9488', '#10b981']
     ];
     const index = name.charCodeAt(0) % gradients.length;
     return gradients[index];
@@ -817,7 +813,7 @@ export default function GroupDetailsPage() {
       {/* Header */}
       <View style={styles.header}>
         <LinearGradient
-          colors={theme.isDark ? ['#2C3E50', '#34495E'] :['#667eea', '#764ba2']}
+          colors={theme.isDark ? ['#2C3E50', '#34495E'] :['#0d9488', '#10b981']}
           style={styles.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}

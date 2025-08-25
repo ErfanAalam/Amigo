@@ -1,11 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import storage from '@react-native-firebase/storage';
 import { Audio } from 'expo-av';
-import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     // ActionSheetIOS,
     ActivityIndicator,
@@ -16,6 +14,7 @@ import {
     Easing,
     FlatList,
     Image,
+    ImageBackground,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -28,6 +27,7 @@ import {
 } from 'react-native';
 import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
+import MediaPicker from '../components/MediaPicker';
 import PDFViewer from '../components/PDFViewer';
 import VideoPlayer from '../components/VideoPlayer';
 import { useAuth } from '../context/AuthContext';
@@ -44,23 +44,26 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 // }
 
 interface Group {
-  id: string;
-  name: string;
-  description: string;
-  createdBy: string;
-  createdAt: any;
-  memberCount: number;
-  isPrivate: boolean;
-  members: string[];
-  admins: string[];
-  inviteCode?: string;
-  profileImageUrl?: string;
+    id: string;
+    name: string;
+    description: string;
+    createdBy: string;
+    createdAt: any;
+    memberCount: number;
+    isPrivate: boolean;
+    members: string[];
+    admins: string[];
+    inviteCode?: string;
+    profileImageUrl?: string;
 }
 
 export default function GroupChatPage() {
     const params = useLocalSearchParams();
     const groupId = params.groupId as string;
     const groupName = params.groupName as string;
+    const innerGroupId = params.innerGroupId as string;
+    const startTime = params.startTime as string;
+    const endTime = params.endTime as string;
     const { userData } = useAuth();
     const { theme } = useTheme();
     const router = useRouter();
@@ -78,12 +81,14 @@ export default function GroupChatPage() {
     const [recordingTimer, setRecordingTimer] = useState<ReturnType<typeof setInterval> | null>(null);
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
     const [sound, setSound] = useState<Audio.Sound | null>(null);
-    // const [isPlaying, setIsPlaying] = useState<string | null>(null);
+    // const [isPlaying, setIsPlaying] = string | null>(null);
     // const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [canSendMessage, setCanSendMessage] = useState(true);
+    const [timeRestrictionMessage, setTimeRestrictionMessage] = useState('');
     const [uploadingMessage, setUploadingMessage] = useState<string>('');
     const [showFullScreenMedia, setShowFullScreenMedia] = useState(false);
-    const [fullScreenMedia, setFullScreenMedia] = useState<{uri: string, type: string, name?: string} | null>(null);
+    const [fullScreenMedia, setFullScreenMedia] = useState<{ uri: string, type: string, name?: string } | null>(null);
     const [showVideoPlayer, setShowVideoPlayer] = useState(false);
     const [showDocumentViewer, setShowDocumentViewer] = useState(false);
     const [showPDFViewer, setShowPDFViewer] = useState(false);
@@ -103,6 +108,13 @@ export default function GroupChatPage() {
         type: 'info',
     });
 
+
+
+    // Typing indicator state
+    const [isTyping, setIsTyping] = useState(false);
+    const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+    const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
     // New state for action popup modal
     const [showActionSheet, setShowActionSheet] = useState(false);
     const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
@@ -113,12 +125,45 @@ export default function GroupChatPage() {
     // const popupAnimation = useRef(new Animated.Value(0)).current;
     // const recordingRef = useRef<any>(null);
 
+    // Function to check if current time is within allowed messaging window
+    const checkMessageTimeWindow = () => {
+        if (!startTime || !endTime) {
+            setCanSendMessage(true);
+            setTimeRestrictionMessage('');
+            return;
+        }
+
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes(); // Convert to minutes
+
+        const [startHour, startMin] = startTime.split(':').map(Number);
+        const [endHour, endMin] = endTime.split(':').map(Number);
+
+        const startTimeMinutes = startHour * 60 + startMin;
+        const endTimeMinutes = endHour * 60 + endMin;
+
+        if (currentTime >= startTimeMinutes && currentTime <= endTimeMinutes) {
+            setCanSendMessage(true);
+            setTimeRestrictionMessage('');
+        } else {
+            setCanSendMessage(false);
+            const formatTime = (time: string) => {
+                const [hours, minutes] = time.split(':');
+                const hour = parseInt(hours);
+                const ampm = hour >= 12 ? 'PM' : 'AM';
+                const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+                return `${displayHour}:${minutes} ${ampm}`;
+            };
+            setTimeRestrictionMessage(`Messaging is only allowed between ${formatTime(startTime)} and ${formatTime(endTime)}`);
+        }
+    };
+
     // Animation functions for action popup
     const animatePopupIn = () => {
         // Reset values first
         popupAnimation.setValue(0);
         popupScale.setValue(0.8);
-        
+
         Animated.parallel([
             Animated.timing(popupAnimation, {
                 toValue: 1,
@@ -158,29 +203,140 @@ export default function GroupChatPage() {
         });
     };
 
-    useEffect(() => {
-        if (!groupId || !userData?.uid) return;
+    // Determine the correct collection path for messages
+    const getMessageCollectionPath = () => {
+        if (innerGroupId) {
+            // Admin-created inner group - use chats collection
+            return firestore
+                .collection('chats')
+                .doc(`${groupId}_${innerGroupId}`)
+                .collection('messages');
+        } else {
+            // User-created group - use groups collection
+            return firestore
+                .collection('groups')
+                .doc(groupId)
+                .collection('messages');
+        }
+    };
 
-        const unsubscribe = firestore
-            .collection('groups')
-            .doc(groupId)
-            .collection('messages')
-            .orderBy('timestamp', 'asc')
-            .onSnapshot((snapshot) => {
-                const messageList: Message[] = [];
-                snapshot.forEach((doc) => {
-                    const messageData = doc.data() as Message;
-                    messageList.push({
-                        ...messageData,
-                        id: doc.id,
-                        isStarred: messageData.starredBy?.includes(userData?.uid || '') || false,
-                    } as Message);
+    // Fetch messages
+    useEffect(() => {
+        if (!groupId) return;
+
+        const messagesRef = getMessageCollectionPath();
+        
+        const unsubscribe = messagesRef
+            .orderBy('timestamp', 'desc')
+            .onSnapshot((snapshot: any) => {
+                const messagesData: Message[] = [];
+                snapshot.forEach((doc: any) => {
+                    messagesData.push({ id: doc.id, ...doc.data() } as Message);
                 });
-                setMessages(messageList);
+                setMessages(messagesData);
             });
 
         return () => unsubscribe();
+    }, [groupId, innerGroupId]);
+
+    // Check time restrictions on component mount and every minute
+    useEffect(() => {
+        checkMessageTimeWindow(); // Check immediately
+
+        const interval = setInterval(() => {
+            checkMessageTimeWindow();
+        }, 60000); // Check every minute
+
+        return () => clearInterval(interval);
+    }, [startTime, endTime, checkMessageTimeWindow]);
+
+    // Typing indicator logic
+    useEffect(() => {
+        if (!groupId) return;
+
+        // Listen to typing status changes
+        const unsubscribeTyping = firestore
+            .collection('groups')
+            .doc(groupId)
+            .onSnapshot((doc) => {
+                const groupData = doc.data();
+                if (groupData?.typingUsers) {
+                    const typingUsersSet = new Set<string>();
+                    Object.keys(groupData.typingUsers).forEach((uid) => {
+                        if (uid !== userData?.uid && groupData.typingUsers[uid]) {
+                            typingUsersSet.add(uid);
+                        }
+                    });
+                    setTypingUsers(typingUsersSet);
+                }
+            });
+
+        return () => unsubscribeTyping();
     }, [groupId, userData?.uid]);
+
+    // Update typing status when user types
+    const updateTypingStatus = useCallback(async (typing: boolean) => {
+        if (!groupId || !userData?.uid) return;
+
+        try {
+            await firestore
+                .collection('groups')
+                .doc(groupId)
+                .update({
+                    [`typingUsers.${userData.uid}`]: typing,
+                });
+        } catch (error) {
+            console.error('Error updating typing status:', error);
+        }
+    }, [groupId, userData?.uid]);
+
+    // Update user's online status
+    useEffect(() => {
+        if (!userData?.uid) return;
+
+        const updateOnlineStatus = async (isOnline: boolean) => {
+            try {
+                await firestore.collection('users').doc(userData.uid).update({
+                    isOnline,
+                    lastSeen: isOnline ? null : FieldValue.serverTimestamp(),
+                });
+            } catch (error) {
+                console.error('Error updating online status:', error);
+            }
+        };
+
+        // Set online when component mounts
+        updateOnlineStatus(true);
+
+        // Set offline when component unmounts
+        return () => {
+            updateOnlineStatus(false);
+        };
+    }, [userData?.uid]);
+
+    // Handle text input changes for typing indicator
+    const handleTextChange = (text: string) => {
+        setNewMessage(text);
+        
+        // Clear existing timeout
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+        }
+
+        // Set typing to true if user is typing
+        if (text.length > 0 && !isTyping) {
+            setIsTyping(true);
+            updateTypingStatus(true);
+        }
+
+        // Set a timeout to stop typing indicator
+        const timeout = setTimeout(() => {
+            setIsTyping(false);
+            updateTypingStatus(false);
+        }, 2000);
+
+        setTypingTimeout(timeout);
+    };
 
     // Fetch group details
     useEffect(() => {
@@ -335,6 +491,12 @@ export default function GroupChatPage() {
     const sendVoiceMessage = async (voiceNote: any) => {
         if (!userData?.uid || !groupId) return;
 
+        // Check if messaging is allowed at current time
+        if (!canSendMessage) {
+            Alert.alert('Messaging Restricted', timeRestrictionMessage);
+            return;
+        }
+
         setUploadingMedia(true);
         setUploadProgress(0);
         setUploadingMessage('Uploading voice note...');
@@ -364,43 +526,54 @@ export default function GroupChatPage() {
 
             const mediaUrl = await reference.getDownloadURL();
 
-            // Add message to chat
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .collection('messages')
-                .add({
-                    messageType: 'voice',
-                    mediaUrl,
-                    mediaName: 'Voice Note',
-                    mediaSize: voiceNote.fileSize,
-                    mediaDuration: voiceNote.duration,
-                    senderId: userData.uid,
-                    senderName: userData.displayName || 'Unknown',
-                    timestamp: FieldValue.serverTimestamp(),
-                    isRead: false,
-                    readBy: [],
-                });
+            // Use conditional collection path
+            const messagesRef = getMessageCollectionPath();
+            await messagesRef.add({
+                messageType: 'voice',
+                mediaUrl,
+                mediaName: 'Voice Note',
+                mediaSize: voiceNote.fileSize,
+                mediaDuration: voiceNote.duration,
+                senderId: userData.uid,
+                senderName: userData.displayName || 'Unknown',
+                timestamp: FieldValue.serverTimestamp(),
+                isRead: false,
+                readBy: [],
+            });
 
-            // Update chat metadata
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .set({
-                    lastMessage: '🎤 Voice Note',
-                    lastMessageType: 'voice',
-                    lastMessageTime: FieldValue.serverTimestamp(),
-                    participants: [userData.uid],
-                    participantNames: [userData.displayName || 'Unknown'],
-                    lastUpdated: FieldValue.serverTimestamp(),
-                }, { merge: true });
+            // Update group metadata based on collection type
+            if (innerGroupId) {
+                // Admin-created inner group - update chats collection
+                await firestore
+                    .collection('chats')
+                    .doc(`${groupId}_${innerGroupId}`)
+                    .set({
+                        lastMessage: '🎤 Voice Note',
+                        lastMessageType: 'voice',
+                        lastMessageTime: FieldValue.serverTimestamp(),
+                        participants: [userData.uid],
+                        participantNames: [userData.displayName || 'Unknown'],
+                        lastUpdated: FieldValue.serverTimestamp(),
+                    }, { merge: true });
+            } else {
+                // User-created group - update groups collection
+                await firestore
+                    .collection('groups')
+                    .doc(groupId)
+                    .update({
+                        lastMessage: '🎤 Voice Note',
+                        lastMessageType: 'voice',
+                        lastMessageTime: FieldValue.serverTimestamp(),
+                        lastUpdated: FieldValue.serverTimestamp(),
+                    });
+            }
 
             // Scroll to bottom after sending
-            setTimeout(() => {
-                if (flatListRef.current) {
-                    flatListRef.current.scrollToEnd({ animated: true });
-                }
-            }, 100);
+            // setTimeout(() => {
+            //     if (flatListRef.current) {
+            //         flatListRef.current.scrollToEnd({ animated: true });
+            //     }
+            // }, 100);
         } catch (error) {
             console.error('Error sending voice message:', error);
             showCustomAlert('Error', 'Failed to send voice message', 'error');
@@ -430,6 +603,12 @@ export default function GroupChatPage() {
     const sendMessage = async () => {
         if (!newMessage.trim() || !userData?.uid || !groupId) return;
 
+        // Check if messaging is allowed at current time
+        if (!canSendMessage) {
+            Alert.alert('Messaging Restricted', timeRestrictionMessage);
+            return;
+        }
+
         const messageText = newMessage.trim();
         setNewMessage('');
         setLoading(true);
@@ -456,27 +635,43 @@ export default function GroupChatPage() {
                 };
             }
 
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .collection('messages')
-                .add(messageData);
+            // Use conditional collection path
+            const messagesRef = getMessageCollectionPath();
+            await messagesRef.add(messageData);
 
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .update({
-                    lastMessage: messageText,
-                    lastMessageType: 'text',
-                    lastMessageTime: FieldValue.serverTimestamp(),
-                });
+            // Update group metadata based on collection type
+            if (innerGroupId) {
+                // Admin-created inner group - update chats collection
+                await firestore
+                    .collection('chats')
+                    .doc(`${groupId}_${innerGroupId}`)
+                    .set({
+                        lastMessage: messageData.text,
+                        lastMessageType: 'text',
+                        lastMessageTime: FieldValue.serverTimestamp(),
+                        participants: [userData.uid],
+                        participantNames: [userData.displayName || 'Unknown'],
+                        lastUpdated: FieldValue.serverTimestamp(),
+                    }, { merge: true });
+            } else {
+                // User-created group - update groups collection
+                await firestore
+                    .collection('groups')
+                    .doc(groupId)
+                    .update({
+                        lastMessage: messageData.text,
+                        lastMessageType: 'text',
+                        lastMessageTime: FieldValue.serverTimestamp(),
+                        lastUpdated: FieldValue.serverTimestamp(),
+                    });
+            }
 
             setReplyingTo(null);
-            setTimeout(() => {
-                if (flatListRef.current) {
-                    flatListRef.current.scrollToEnd({ animated: true });
-                }
-            }, 100);
+            // setTimeout(() => {
+            //     if (flatListRef.current) {
+            //         flatListRef.current.scrollToEnd({ animated: true });
+            //     }
+            // }, 100);
         } catch (error) {
             console.error('Error sending message:', error);
         } finally {
@@ -484,88 +679,48 @@ export default function GroupChatPage() {
         }
     };
 
-    const pickImage = async () => {
-        try {
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [4, 3],
-                quality: 0.8,
-            });
 
-            if (!result.canceled && result.assets[0]) {
-                await sendMediaMessage([result.assets[0]], 'image');
-            }
-        } catch (error) {
-            console.error('Error picking image:', error);
-        }
-    };
-
-    const takePhoto = async () => {
-        try {
-            const result = await ImagePicker.launchCameraAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [4, 3],
-                quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-                await sendMediaMessage([result.assets[0]], 'image');
-            }
-        } catch (error) {
-            console.error('Error taking photo:', error);
-        }
-    };
-
-    const pickDocument = async () => {
-        try {
-            const result = await DocumentPicker.getDocumentAsync({
-                type: '*/*',
-                copyToCacheDirectory: true,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-                await sendMediaMessage([result.assets[0]], 'document');
-            }
-        } catch (error) {
-            console.error('Error picking document:', error);
-        }
-    };
-
-    const pickVideo = async () => {
-        try {
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-                allowsEditing: true,
-                aspect: [16, 9],
-                quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-                await sendMediaMessage([result.assets[0]], 'video');
-            }
-        } catch (error) {
-            console.error('Error picking video:', error);
-        }
-    };
 
     const sendMediaMessage = async (mediaFiles: any[], type: 'image' | 'video' | 'document') => {
         if (!userData?.uid || !groupId) return;
+
+        // Check if messaging is allowed at current time
+        if (!canSendMessage) {
+            Alert.alert('Messaging Restricted', timeRestrictionMessage);
+            return;
+        }
 
         setUploadingMedia(true);
         setUploadProgress(0);
         setUploadingMessage(`Uploading ${type}...`);
 
         try {
+           
+
             for (const mediaFile of mediaFiles) {
+              
+
+                // Validate required fields
+                if (!mediaFile.uri) {
+                    console.error('❌ MediaFile.uri is undefined!');
+                    throw new Error('Media file URI is undefined');
+                }
+
+                if (!mediaFile.fileName && !mediaFile.name) {
+                    console.error('❌ Both fileName and name are undefined!');
+                    throw new Error('Media file name is undefined');
+                }
+
                 // Upload media to Firebase Storage first
                 const fileName = `${type}/${groupId}/${Date.now()}_${mediaFile.fileName || mediaFile.name || 'file'}`;
+                
+                
                 const reference = storage().ref().child(fileName);
 
                 // Convert local URI to blob
                 const response = await fetch(mediaFile.uri);
                 const blob = await response.blob();
+                
 
                 // Track upload progress
                 const uploadTask = reference.put(blob);
@@ -582,6 +737,7 @@ export default function GroupChatPage() {
 
                 // Get download URL
                 const mediaUrl = await reference.getDownloadURL();
+               
 
                 const messageData: any = {
                     messageType: type,
@@ -595,13 +751,43 @@ export default function GroupChatPage() {
                     readBy: [],
                 };
 
+                // Validate messageData before sending
+               
+                // Check for undefined values
+                const undefinedFields = Object.entries(messageData)
+                    .filter(([key, value]) => value === undefined)
+                    .map(([key]) => key);
+                
+                if (undefinedFields.length > 0) {
+                    console.error('❌ Found undefined fields:', undefinedFields);
+                    throw new Error(`Undefined fields found: ${undefinedFields.join(', ')}`);
+                }
+
+                // Check for null values
+                const nullFields = Object.entries(messageData)
+                    .filter(([key, value]) => value === null)
+                    .map(([key]) => key);
+                
+                if (nullFields.length > 0) {
+                    console.error('❌ Found null fields:', nullFields);
+                    throw new Error(`Null fields found: ${nullFields.join(', ')}`);
+                }
+
+                
+
                 if (type === 'image' || type === 'video') {
-                    messageData.text = type === 'image' ? '📷 Image' : '🎥 Video';
                     // For videos, add video-specific properties
                     if (type === 'video') {
                         messageData.mediaDuration = 0; // You can extract actual duration if needed
                         // Ensure the messageType is correctly set for videos
                         messageData.messageType = 'video';
+                        // Add text for video messages to prevent undefined field error
+                        messageData.text = '🎥 Video';
+                    }
+                    if(type === 'image'){
+                        messageData.messageType = 'image';
+                        // Add text for image messages to prevent undefined field error
+                        messageData.text = '📷 Image';
                     }
                 } else {
                     messageData.text = '📄 Document';
@@ -618,28 +804,53 @@ export default function GroupChatPage() {
                     };
                 }
 
-                await firestore
-                    .collection('groups')
-                    .doc(groupId)
-                    .collection('messages')
-                    .add(messageData);
+               
 
-                await firestore
-                    .collection('groups')
-                    .doc(groupId)
-                    .update({
-                        lastMessage: messageData.text,
-                        lastMessageType: type,
-                        lastMessageTime: FieldValue.serverTimestamp(),
-                    });
+                // Use conditional collection path
+                const messagesRef = getMessageCollectionPath();
+                
+                
+                await messagesRef.add(messageData);
+               
+
+                // Update group metadata based on collection type
+                if (innerGroupId) {
+                    // Admin-created inner group - update chats collection
+                    await firestore
+                        .collection('chats')
+                        .doc(`${groupId}_${innerGroupId}`)
+                        .set({
+                            lastMessage: messageData.text || `📎 ${type}`,
+                            lastMessageType: type,
+                            lastMessageTime: FieldValue.serverTimestamp(),
+                            participants: [userData.uid],
+                            participantNames: [userData.displayName || 'Unknown'],
+                            lastUpdated: FieldValue.serverTimestamp(),
+                        }, { merge: true });
+                } else {
+                    // User-created group - update groups collection
+                    await firestore
+                        .collection('groups')
+                        .doc(groupId)
+                        .update({
+                            lastMessage: messageData.text || `📎 ${type}`,
+                            lastMessageType: type,
+                            lastMessageTime: FieldValue.serverTimestamp(),
+                            lastUpdated: FieldValue.serverTimestamp(),
+                        });
+                }
+                
+               
             }
 
             setReplyingTo(null);
             setShowMediaPicker(false);
             showCustomAlert('Success', 'Media sent successfully!', 'success');
-        } catch (error) {
-            console.error('Error sending media:', error);
-            showCustomAlert('Error', 'Failed to send media', 'error');
+           
+        } catch (error: any) {
+            console.error('=== Error in sendMediaMessage ===');
+           
+            showCustomAlert('Error', `Failed to send media: ${error.message}`, 'error');
         } finally {
             setUploadingMedia(false);
             setUploadProgress(0);
@@ -664,10 +875,8 @@ export default function GroupChatPage() {
     const pinMessage = async (message: Message) => {
         try {
             // Update the message to be pinned
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .collection('messages')
+            const messagesRef = getMessageCollectionPath();
+            await messagesRef
                 .doc(message.id)
                 .update({
                     isPinned: true,
@@ -685,10 +894,8 @@ export default function GroupChatPage() {
         if (!pinnedMessage) return;
 
         try {
-            await firestore
-                .collection('groups')
-                .doc(groupId)
-                .collection('messages')
+            const messagesRef = getMessageCollectionPath();
+            await messagesRef
                 .doc(pinnedMessage.id)
                 .update({
                     isPinned: false,
@@ -705,13 +912,11 @@ export default function GroupChatPage() {
     const starMessage = async (message: Message) => {
         try {
             const isCurrentlyStarred = message.starredBy?.includes(userData?.uid || '') || false;
-            
+
             if (isCurrentlyStarred) {
                 // Unstar the message
-                await firestore
-                    .collection('groups')
-                    .doc(groupId)
-                    .collection('messages')
+                const messagesRef = getMessageCollectionPath();
+                await messagesRef
                     .doc(message.id)
                     .update({
                         starredBy: FieldValue.arrayRemove(userData?.uid),
@@ -720,10 +925,8 @@ export default function GroupChatPage() {
                 showCustomAlert('Success', 'Message unstarred!', 'success');
             } else {
                 // Star the message
-                await firestore
-                    .collection('groups')
-                    .doc(groupId)
-                    .collection('messages')
+                const messagesRef = getMessageCollectionPath();
+                await messagesRef
                     .doc(message.id)
                     .update({
                         starredBy: FieldValue.arrayUnion(userData?.uid),
@@ -749,10 +952,8 @@ export default function GroupChatPage() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await firestore
-                                .collection('groups')
-                                .doc(groupId)
-                                .collection('messages')
+                            const messagesRef = getMessageCollectionPath();
+                            await messagesRef
                                 .doc(message.id)
                                 .delete();
 
@@ -853,7 +1054,7 @@ export default function GroupChatPage() {
             // ['#f093fb', '#f5576c'],
             // ['#4facfe', '#00f2fe'],
             // ['#43e97b', '#38f9d7'],
-            ['#a8edea', '#fed6e3'],
+            ['#0d9488', '#10b981'],
         ];
         const index = name.charCodeAt(0) % gradients.length;
         return gradients[index];
@@ -863,12 +1064,12 @@ export default function GroupChatPage() {
         const isOwnMessage = item.senderId === userData?.uid;
         const isStarred = item.starredBy?.includes(userData?.uid || '') || false;
         const isPinned = item.isPinned || false;
-        
+
         const MessageBubble = ({ children }: { children: React.ReactNode }) => {
             if (isOwnMessage) {
                 return (
                     <LinearGradient
-                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#667eea', '#764ba2']}
+                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']} 
                         style={[
                             styles.modernMessageBubble,
                             styles.ownMessageBubble,
@@ -894,12 +1095,21 @@ export default function GroupChatPage() {
                 );
             }
         };
-        
+
         return (
             <View style={[
                 styles.modernMessageContainer,
                 isOwnMessage ? styles.ownMessage : styles.otherMessage
             ]}>
+                {/* Sender name for group chat */}
+                {!isOwnMessage && (
+                    <View style={styles.senderNameContainer}>
+                        <Text style={[styles.senderName, { color: theme.colors.textSecondary }]}>
+                            {item.senderName || 'Unknown'}
+                        </Text>
+                    </View>
+                )}
+                
                 <TouchableOpacity
                     onLongPress={() => showMessageActions(item)}
                     onPress={() => {
@@ -926,18 +1136,18 @@ export default function GroupChatPage() {
                                 ]}>
                                     {item.replyTo.senderName}
                                 </Text>
-                                <Text 
+                                <Text
                                     style={[
                                         styles.replyText,
-                                        { 
-                                            color: isOwnMessage 
-                                                ? 'rgba(255,255,255,0.95)' 
+                                        {
+                                            color: isOwnMessage
+                                                ? 'rgba(255,255,255,0.95)'
                                                 : '#333333'
                                         }
                                     ]}
                                     numberOfLines={1}
                                 >
-                                    {item.replyTo.messageType === 'text' 
+                                    {item.replyTo.messageType === 'text'
                                         ? (item.replyTo.messageText || 'Text message')
                                         : `📎 ${item.replyTo.mediaName || item.replyTo.messageType || 'Media'}`
                                     }
@@ -963,8 +1173,8 @@ export default function GroupChatPage() {
 
                         {/* Message content */}
                         {item.messageType !== 'text' && item.mediaUrl ? (
-                            <MediaMessage 
-                                message={item} 
+                            <MediaMessage
+                                message={item}
                                 isOwnMessage={isOwnMessage}
                                 onMediaPress={() => {
                                     handleMediaPress(item);
@@ -979,15 +1189,15 @@ export default function GroupChatPage() {
                                 {item.text || 'Message'}
                             </Text>
                         )}
-                        
+
                         <View style={styles.messageFooter}>
                             <Text style={[
                                 styles.modernMessageTime,
                                 { color: isOwnMessage ? '#ffffff' : '#757575' }
                             ]}>
-                                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
+                                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
                                 }) : '--:--'}
                             </Text>
                         </View>
@@ -1010,12 +1220,17 @@ export default function GroupChatPage() {
     const [headerColor1, headerColor2] = getAvatarGradient(groupName);
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-            {/* Modern Header with Gradient - Clickable for Group Management */}
+        <ImageBackground
+            source={theme.isDark ? require('../assets/images/chat-bg-dark.jpeg') : require('../assets/images/chat-bg-light.jpeg')}
+            style={styles.backgroundImage}
+            resizeMode="cover"
+        >
+            <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+                {/* Modern Header with Gradient - Clickable for Group Management */}
             <TouchableOpacity onPress={openGroupManagement} activeOpacity={0.8}>
                 <View style={styles.modernHeader}>
                     <LinearGradient
-                        colors={theme.isDark ? ['#2C3E50', '#34495E'] :['#667eea', '#764ba2']}
+                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
                         style={styles.headerGradient}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
@@ -1051,7 +1266,7 @@ export default function GroupChatPage() {
                                 <View style={styles.headerTextContainer}>
                                     <Text style={[styles.modernHeaderName, { color: '#ffffff' }]}>{groupName || 'Group Chat'}</Text>
                                     <Text style={[styles.modernHeaderStatus, { color: 'rgba(255,255,255,0.8)' }]}>
-                                        Group Chat • Tap for details
+                                        {typingUsers.size > 0 ? `${typingUsers.size} typing...` : 'Group Chat • Tap for details'}
                                     </Text>
                                 </View>
                                 <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
@@ -1063,7 +1278,7 @@ export default function GroupChatPage() {
 
             {/* Pinned Message */}
             {pinnedMessage && (
-                <View style={styles.pinnedMessageContainer}>    
+                <View style={[styles.pinnedMessageContainer, { backgroundColor: 'transparent' }]}>
                     <Ionicons name="pin" size={16} color="#FFD700" />
                     <Text style={styles.pinnedMessageText} numberOfLines={1}>
                         {pinnedMessage.senderName || 'Unknown'}: {pinnedMessage.text || 'Message'}
@@ -1076,7 +1291,7 @@ export default function GroupChatPage() {
 
             {/* Reply Indicator */}
             {replyingTo && (
-                <View style={styles.replyContainer}>
+                <View style={[styles.replyContainer, { backgroundColor: 'transparent' }]}>
                     <View style={styles.replyContent}>
                         <Text style={styles.replyInputLabel}>Replying to {replyingTo.senderName || 'Unknown'}</Text>
                         <Text style={styles.replyText} numberOfLines={1}>{replyingTo.text || 'Message'}</Text>
@@ -1101,21 +1316,42 @@ export default function GroupChatPage() {
                     style={styles.modernMessagesList}
                     contentContainerStyle={styles.modernMessagesContent}
                     showsVerticalScrollIndicator={false}
-                    onContentSizeChange={() => {
-                        if (flatListRef.current && messages.length > 0) {
-                            flatListRef.current.scrollToEnd({ animated: true });
-                        }
-                    }}
-                    // onLayout={() => {
-                    //     if (flatListRef.current && messages.length > 0) {
-                    //         flatListRef.current.scrollToEnd({ animated: false });
-                    //     }
-                    // }}
+                    inverted={true}
                 />
+
+                {/* Typing Indicators */}
+                {typingUsers.size > 0 && (
+                    <View style={[styles.typingIndicator, { backgroundColor: 'transparent' }]}>
+                        <View style={styles.typingContent}>
+                            <View style={styles.typingAvatar}>
+                                <LinearGradient
+                                    colors={getAvatarGradient('Group') as [string, string]}
+                                    style={styles.typingAvatarGradient}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                >
+                                    <Text style={styles.typingAvatarText}>
+                                        👥
+                                    </Text>
+                                </LinearGradient>
+                            </View>
+                            <View style={styles.typingBubble}>
+                                <Text style={[styles.typingText, { color: theme.colors.textSecondary }]}>
+                                    {typingUsers.size === 1 ? 'Someone is typing...' : `${typingUsers.size} people are typing...`}
+                                </Text>
+                                <View style={styles.typingDots}>
+                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                )}
 
                 {/* Uploading Media Indicator - Integrated in Input Container */}
                 {uploadingMedia && (
-                    <View style={[styles.uploadingIndicator, { backgroundColor: theme.colors.surface }]}>
+                    <View style={[styles.uploadingIndicator, { backgroundColor: 'transparent' }]}>
                         <View style={styles.uploadingContent}>
                             <ActivityIndicator size="small" color={theme.colors.primary} />
                             <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
@@ -1141,23 +1377,33 @@ export default function GroupChatPage() {
                     </View>
                 )}
 
-                                {/* Modern Input Container */}
+                {/* Time Restriction Message */}
+                {!canSendMessage && timeRestrictionMessage && (
+                    <View style={[styles.timeRestrictionBanner, { backgroundColor: 'rgba(255, 243, 205, 0.9)' }]}>
+                        <Ionicons name="time" size={16} color="#856404" />
+                        <Text style={[styles.timeRestrictionText, { color: '#856404' }]}>
+                            {timeRestrictionMessage}
+                        </Text>
+                    </View>
+                )}
+
+                {/* Modern Input Container */}
                 <View style={[
                     styles.modernInputContainer,
                     {
-                        backgroundColor: theme.colors.surface,
-                        borderTopColor: theme.colors.border,
+                        backgroundColor: 'transparent',
+                        borderTopColor: 'transparent',
                     }
                 ]}>
                     <View style={[styles.inputWrapper, {
-                        backgroundColor: theme.colors.inputBackground || '#f8f9fa',
-                        borderColor: theme.colors.inputBorder || '#e9ecef',
+                        backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+                        borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
                     }]}>
                         {/* Media Button */}
                         <TouchableOpacity
                             style={styles.mediaButton}
                             onPress={() => setShowMediaPicker(true)}
-                            disabled={uploadingMedia}
+                            disabled={uploadingMedia || !canSendMessage}
                         >
                             <Ionicons
                                 name="add-circle"
@@ -1175,7 +1421,7 @@ export default function GroupChatPage() {
                         <TouchableOpacity
                             style={styles.voiceButton}
                             onPress={() => setShowVoiceRecorder(true)}
-                            disabled={uploadingMedia}
+                            disabled={uploadingMedia || !canSendMessage}
                         >
                             <Ionicons
                                 name="mic"
@@ -1195,28 +1441,30 @@ export default function GroupChatPage() {
                                 {
                                     color: theme.colors.inputText || '#333333',
                                     backgroundColor: 'transparent',
+                                    opacity: canSendMessage ? 1 : 0.5,
                                 }
                             ]}
                             value={newMessage}
-                            onChangeText={setNewMessage}
-                            placeholder="Type a message..."
+                            onChangeText={handleTextChange}
+                            placeholder={canSendMessage ? "Type a message..." : "Messaging restricted"}
                             placeholderTextColor={theme.colors.inputPlaceholder || '#999999'}
                             multiline
                             maxLength={1000}
                             textAlignVertical="top"
+                            editable={canSendMessage}
                         />
-                        
+
                         <TouchableOpacity
                             style={[
                                 styles.modernSendButton,
-                                { opacity: newMessage.trim() ? 1 : 0.6 }
+                                { opacity: newMessage.trim() && canSendMessage ? 1 : 0.6 }
                             ]}
                             onPress={sendMessage}
-                            disabled={!newMessage.trim() || loading || uploadingMedia}
+                            disabled={!newMessage.trim() || loading || uploadingMedia || !canSendMessage}
                             activeOpacity={0.8}
                         >
                             <LinearGradient
-                                colors={newMessage.trim() ? ['#667eea', '#764ba2'] : ['#ccc', '#ccc']}
+                                colors={newMessage.trim() ? ['#0d9488', '#10b981'] : ['#ccc', '#ccc']}
                                 style={styles.sendButtonGradient}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 1 }}
@@ -1233,88 +1481,25 @@ export default function GroupChatPage() {
             </KeyboardAvoidingView>
 
             {/* Media Picker Modal */}
-            <Modal
-                visible={showMediaPicker}
-                animationType="slide"
-                transparent={true}
-                onRequestClose={() => setShowMediaPicker(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Send Media</Text>
-
-                        <View style={styles.mediaOptionsContainer}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                                <TouchableOpacity
-                                    style={styles.mediaOption}
-                                    onPress={() => {
-                                        setShowMediaPicker(false);
-                                        takePhoto();
-                                    }}
-                                >
-                                    <Ionicons name="camera" size={32} color="#667eea" />
-                                    <Text style={styles.mediaOptionText}>Camera</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.mediaOption}
-                                    onPress={() => {
-                                        setShowMediaPicker(false);
-                                        pickImage();
-                                    }}
-                                >
-                                    <Ionicons name="images" size={32} color="#667eea" />
-                                    <Text style={styles.mediaOptionText}>Gallery</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                                <TouchableOpacity
-                                    style={styles.mediaOption}
-                                    onPress={() => {
-                                        setShowMediaPicker(false);
-                                        pickVideo();
-                                    }}
-                                >
-                                    <Ionicons name="videocam" size={32} color="#667eea" />
-                                    <Text style={styles.mediaOptionText}>Video</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.mediaOption}
-                                    onPress={() => {
-                                        setShowMediaPicker(false);
-                                        pickDocument();
-                                    }}
-                                >
-                                    <Ionicons name="document" size={32} color="#667eea" />
-                                    <Text style={styles.mediaOptionText}>Document</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                                <TouchableOpacity
-                                    style={styles.mediaOption}
-                                    onPress={() => {
-                                        setShowMediaPicker(false);
-                                        startRecording();
-                                    }}
-                                >
-                                    <Ionicons name="mic" size={32} color="#667eea" />
-                                    <Text style={styles.mediaOptionText}>Voice Note</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.cancelButton}
-                            onPress={() => setShowMediaPicker(false)}
-                        >
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+            <MediaPicker
+                isVisible={showMediaPicker}
+                onClose={() => setShowMediaPicker(false)}
+                onMediaSelected={(mediaFiles) => {
+                    // Determine type from the first media file
+                    const firstFile = mediaFiles[0];
+                    let mediaType: 'image' | 'video' | 'document' = 'document';
+                    
+                    if (firstFile.type.startsWith('image/')) {
+                        mediaType = 'image';
+                    } else if (firstFile.type.startsWith('video/')) {
+                        mediaType = 'video';
+                    }
+                    
+                    sendMediaMessage(mediaFiles, mediaType);
+                }}
+                onVoiceRecorded={sendVoiceMessage}
+                isUploading={uploadingMedia}
+            />
 
             {/* Voice Recorder Modal */}
             <Modal
@@ -1326,7 +1511,7 @@ export default function GroupChatPage() {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Record Voice Note</Text>
-                        
+
                         <View style={styles.voiceRecorderContainer}>
                             {!isRecording ? (
                                 <TouchableOpacity
@@ -1381,13 +1566,13 @@ export default function GroupChatPage() {
                         <Ionicons name="close" size={30} color="#ffffff" />
                     </TouchableOpacity>
 
-                                         {fullScreenMedia && (
-                         <Image
-                             source={{ uri: fullScreenMedia.uri }}
-                             style={styles.fullScreenImage}
-                             resizeMode="contain"
-                         />
-                     )}
+                    {fullScreenMedia && (
+                        <Image
+                            source={{ uri: fullScreenMedia.uri }}
+                            style={styles.fullScreenImage}
+                            resizeMode="contain"
+                        />
+                    )}
                 </View>
             </Modal>
 
@@ -1448,6 +1633,8 @@ export default function GroupChatPage() {
                 </View>
             </Modal>
 
+
+
             {/* Custom Alert */}
             <Modal
                 visible={customAlert.visible}
@@ -1495,15 +1682,15 @@ export default function GroupChatPage() {
                         ]}
                         pointerEvents="none"
                     />
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.actionPopupBackdrop}
                         onPress={animatePopupOut}
                         activeOpacity={1}
                     />
-                    <Animated.View 
+                    <Animated.View
                         style={[
-                            styles.actionPopupContainer, 
-                            { 
+                            styles.actionPopupContainer,
+                            {
                                 backgroundColor: theme.colors.surface,
                                 opacity: popupAnimation,
                                 transform: [{ scale: popupScale }],
@@ -1517,28 +1704,28 @@ export default function GroupChatPage() {
                                 <View style={styles.selectedMessageContainer}>
                                     <View style={[
                                         styles.selectedMessageBubble,
-                                        { 
-                                            backgroundColor: selectedMessageForActions.senderId === userData?.uid 
-                                                ? theme.colors.primary 
-                                                : theme.colors.border 
+                                        {
+                                            backgroundColor: selectedMessageForActions.senderId === userData?.uid
+                                                ? theme.colors.primary
+                                                : theme.colors.border
                                         }
                                     ]}>
                                         <Text style={[
                                             styles.selectedMessageText,
-                                            { 
-                                                color: selectedMessageForActions.senderId === userData?.uid 
-                                                    ? '#FFFFFF' 
-                                                    : theme.colors.text 
+                                            {
+                                                color: selectedMessageForActions.senderId === userData?.uid
+                                                    ? '#FFFFFF'
+                                                    : theme.colors.text
                                             }
                                         ]}>
                                             {selectedMessageForActions.text || 'Media message'}
                                         </Text>
                                         <Text style={[
                                             styles.selectedMessageTime,
-                                            { 
-                                                color: selectedMessageForActions.senderId === userData?.uid 
-                                                    ? 'rgba(255, 255, 255, 0.7)' 
-                                                    : theme.colors.textSecondary 
+                                            {
+                                                color: selectedMessageForActions.senderId === userData?.uid
+                                                    ? 'rgba(255, 255, 255, 0.7)'
+                                                    : theme.colors.textSecondary
                                             }
                                         ]}>
                                             {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
@@ -1597,10 +1784,10 @@ export default function GroupChatPage() {
                                             </Text>
                                         </View>
                                         <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
-                                            <Ionicons 
-                                                name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"} 
-                                                size={18} 
-                                                color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary} 
+                                            <Ionicons
+                                                name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"}
+                                                size={18}
+                                                color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary}
                                             />
                                         </View>
                                     </TouchableOpacity>
@@ -1623,10 +1810,10 @@ export default function GroupChatPage() {
                                             </Text>
                                         </View>
                                         <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                                            <Ionicons 
-                                                name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"} 
-                                                size={18} 
-                                                color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary} 
+                                            <Ionicons
+                                                name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"}
+                                                size={18}
+                                                color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary}
                                             />
                                         </View>
                                     </TouchableOpacity>
@@ -1646,10 +1833,10 @@ export default function GroupChatPage() {
                                             </Text>
                                         </View>
                                         <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                                            <Ionicons 
-                                                name="trash-outline" 
-                                                size={18} 
-                                                color="#F44336" 
+                                            <Ionicons
+                                                name="trash-outline"
+                                                size={18}
+                                                color="#F44336"
                                             />
                                         </View>
                                     </TouchableOpacity>
@@ -1659,11 +1846,16 @@ export default function GroupChatPage() {
                     </Animated.View>
                 </View>
             </Modal>
-        </SafeAreaView>
+            </SafeAreaView>
+        </ImageBackground>
     );
 }
 
 const styles = StyleSheet.create({
+    // Background image
+    backgroundImage: {
+        flex: 1,
+    },
     container: {
         flex: 1,
     },
@@ -1787,7 +1979,7 @@ const styles = StyleSheet.create({
     },
 
     modernMessageContainer: {
-        flexDirection: 'row',
+        flexDirection: 'column',
         marginVertical: 8,
         paddingHorizontal: 4,
     },
@@ -1799,15 +1991,11 @@ const styles = StyleSheet.create({
     },
     modernMessageBubble: {
         maxWidth: '78%',
-        paddingHorizontal: 18,
-        paddingVertical: 12,
-        borderRadius: 22,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 3,
-        borderWidth: 1,
+        minWidth: 120,
+        paddingHorizontal: 3,
+        paddingVertical: 3,
+        borderRadius: 12,
+        position: 'relative',
     },
     ownMessageBubble: {
         borderBottomRightRadius: 8,
@@ -1821,23 +2009,20 @@ const styles = StyleSheet.create({
     },
     otherMessageBubble: {
         borderBottomLeftRadius: 8,
+        marginRight:'auto',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.04,
         shadowRadius: 4,
         elevation: 2,
     },
-    senderName: {
-        fontSize: 12,
-        fontWeight: '600',
-        marginBottom: 4,
-        opacity: 0.8,
-    },
+
     modernMessageText: {
         fontSize: 16,
         lineHeight: 24,
         fontWeight: '400',
         letterSpacing: 0.2,
+        padding:8
     },
     messageFooter: {
         flexDirection: 'row',
@@ -1907,11 +2092,6 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         borderTopWidth: 1,
         paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 4,
     },
     mediaButtonsContainer: {
         flexDirection: 'row',
@@ -1968,11 +2148,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 6,
         paddingVertical: 6,
         marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 6,
         borderWidth: 1,
     },
     modernTextInput: {
@@ -2209,7 +2384,7 @@ const styles = StyleSheet.create({
     },
     otherReplyContainer: {
         maxWidth: '78%',
-        backgroundColor:'rgba(71, 22, 94, 0.67)',
+        backgroundColor: 'rgba(71, 22, 94, 0.67)',
         borderWidth: 1,
         borderColor: 'rgba(0,0,0,0.15)',
     },
@@ -2255,6 +2430,17 @@ const styles = StyleSheet.create({
         top: 8,
         left: 8,
         zIndex: 1,
+    },
+
+    // Sender name styles for group chat
+    senderNameContainer: {
+        marginBottom: 4,
+        marginLeft: 8,
+    },
+    senderName: {
+        fontSize: 12,
+        fontWeight: '600',
+        opacity: 0.8,
     },
 
     // Uploading Media Indicator styles
@@ -2376,4 +2562,73 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 12,
     },
+
+    // Time restriction styles
+    timeRestrictionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ffeaa7',
+    },
+    timeRestrictionText: {
+        fontSize: 14,
+        fontWeight: '500',
+        marginLeft: 8,
+        flex: 1,
+    },
+
+    // Typing indicator styles
+    typingIndicator: {
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+    },
+    typingContent: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+    },
+    typingAvatar: {
+        marginRight: 12,
+    },
+    typingAvatarGradient: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    typingAvatarText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#000',
+    },
+    typingBubble: {
+        backgroundColor: '#F5F5F5',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 20,
+        borderBottomLeftRadius: 8,
+    },
+    typingText: {
+        fontSize: 12,
+        fontWeight: '500',
+        marginBottom: 8,
+        color: '#666',
+    },
+    typingDots: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    typingDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        marginHorizontal: 2,
+        opacity: 0.7,
+    },
+
 });

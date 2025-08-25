@@ -245,7 +245,7 @@ export default function ContactsScreen() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-      ['#667eea', '#764ba2'],
+      ['#0d9488', '#10b981'],
       ['#f093fb', '#f5576c'],
       ['#4facfe', '#00f2fe'],
       ['#43e97b', '#38f9d7'],
@@ -351,7 +351,7 @@ export default function ContactsScreen() {
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={['#667eea', '#764ba2']}
+            colors={['#0d9488', '#10b981']}
             style={styles.ctaButtonGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -378,7 +378,7 @@ export default function ContactsScreen() {
       {/* Modern Header */}
       <View style={[styles.modernHeader, { backgroundColor: theme.colors.surface }]}>
         <LinearGradient
-          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : ['#667eea', '#764ba2']}
+          colors={theme.isDark ? ['#1a1a2e', '#16213e'] : ['#0d9488', '#10b981']}
           style={styles.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -489,8 +489,8 @@ export default function ContactsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#667eea']}
-              tintColor={'#667eea'}
+              colors={['#0d9488']}
+              tintColor={'#0d9488'}
               progressBackgroundColor={theme.colors.surface}
             />
           }

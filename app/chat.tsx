@@ -11,6 +11,7 @@ import {
   Dimensions,
   Easing,
   FlatList,
+  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -78,18 +79,23 @@ export default function ChatPage() {
     type: 'info',
   });
   
+  // Typing indicator state
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  
   const flatListRef = useRef<FlatList>(null);
 
   // Auto-scroll when new messages arrive
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 300);
-    }
-  }, [messages]);
+  // useEffect(() => {
+  //   if (messages.length > 0) {
+  //     setTimeout(() => {
+  //       if (flatListRef.current) {
+  //         flatListRef.current.scrollToEnd({ animated: true });
+  //       }
+  //     }, 300);
+  //   }
+  // }, [messages]);
 
   // Fetch receiver's profile image
   const fetchReceiverProfileImage = useCallback(async () => {
@@ -216,6 +222,91 @@ export default function ChatPage() {
     }, [chatId, userData?.uid, fetchReceiverProfileImage, fetchPinnedMessage, fetchContacts, markMessagesAsRead])
   );
 
+  // Typing indicator logic
+  useEffect(() => {
+    if (!chatId || !userData?.uid) return;
+
+    // Listen to typing status changes
+    const unsubscribeTyping = firestore
+      .collection('chats')
+      .doc(chatId)
+      .onSnapshot((doc) => {
+        const chatData = doc.data();
+        if (chatData?.typingUsers) {
+          const typingUser = Object.keys(chatData.typingUsers).find(
+            (uid) => uid !== userData.uid && chatData.typingUsers[uid]
+          );
+          setOtherUserTyping(!!typingUser);
+        }
+      });
+
+    return () => unsubscribeTyping();
+  }, [chatId, userData?.uid]);
+
+  // Update typing status when user types
+  const updateTypingStatus = useCallback(async (typing: boolean) => {
+    if (!chatId || !userData?.uid) return;
+
+    try {
+      await firestore
+        .collection('chats')
+        .doc(chatId)
+        .update({
+          [`typingUsers.${userData.uid}`]: typing,
+        });
+    } catch (error) {
+      console.error('Error updating typing status:', error);
+    }
+  }, [chatId, userData?.uid]);
+
+  // Update user's online status
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    const updateOnlineStatus = async (isOnline: boolean) => {
+      try {
+        await firestore.collection('users').doc(userData.uid).update({
+          isOnline,
+          lastSeen: isOnline ? null : FieldValue.serverTimestamp(),
+        });
+      } catch (error) {
+        console.error('Error updating online status:', error);
+      }
+    };
+
+    // Set online when component mounts
+    updateOnlineStatus(true);
+
+    // Set offline when component unmounts
+    return () => {
+      updateOnlineStatus(false);
+    };
+  }, [userData?.uid]);
+
+  // Handle text input changes for typing indicator
+  const handleTextChange = (text: string) => {
+    setNewMessage(text);
+    
+    // Clear existing timeout
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+    }
+
+    // Set typing to true if user is typing
+    if (text.length > 0 && !isTyping) {
+      setIsTyping(true);
+      updateTypingStatus(true);
+    }
+
+    // Set a timeout to stop typing indicator
+    const timeout = setTimeout(() => {
+      setIsTyping(false);
+      updateTypingStatus(false);
+    }, 2000);
+
+    setTypingTimeout(timeout);
+  };
+
   // Generate or find chat ID
   useEffect(() => {
     if (!userData?.uid || !userId) return;
@@ -253,7 +344,7 @@ export default function ChatPage() {
       .collection('chats')
       .doc(chatId)
       .collection('messages')
-      .orderBy('timestamp', 'asc')
+      .orderBy('timestamp', 'desc')
       .onSnapshot((snapshot) => {
         const messageList: Message[] = [];
         snapshot.forEach((doc) => {
@@ -407,11 +498,11 @@ export default function ChatPage() {
         }, { merge: true });
 
       // Scroll to bottom after sending
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
+      // setTimeout(() => {
+      //   if (flatListRef.current) {
+      //     flatListRef.current.scrollToEnd({ animated: true });
+      //   }
+      // }, 100);
     } catch (error) {
       console.error('Error sending media messages:', error);
       showCustomAlert('Error', 'Failed to send media messages', 'error');
@@ -484,11 +575,11 @@ export default function ChatPage() {
         }, { merge: true });
 
       // Scroll to bottom after sending
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
+      // setTimeout(() => {
+      //   if (flatListRef.current) {
+      //     flatListRef.current.scrollToEnd({ animated: true });
+      //   }
+      // }, 100);
     } catch (error) {
       console.error('Error sending voice message:', error);
       showCustomAlert('Error', 'Failed to send voice message', 'error');
@@ -825,7 +916,7 @@ export default function ChatPage() {
         }
       );
     } else {
-      // For Android, show custom action popup
+      // For `Android`, show custom action popup
       setSelectedMessageForActions(message);
       setShowActionSheet(true);
       // Start animation immediately for smoother experience
@@ -889,11 +980,11 @@ export default function ChatPage() {
         }, { merge: true });
 
       // Scroll to bottom after sending
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
+      // setTimeout(() => {
+      //   if (flatListRef.current) {
+      //     flatListRef.current.scrollToEnd({ animated: true });
+      //   }
+      // }, 100);
     } catch (error) {
       console.error('Error sending message:', error);
       showCustomAlert('Error', 'Failed to send message', 'error');
@@ -971,7 +1062,7 @@ export default function ChatPage() {
       if (isOwnMessage) {
         return (
           <LinearGradient
-            colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#667eea', '#764ba2']}
+            colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
             style={[
               styles.modernMessageBubble,
               styles.ownMessageBubble,
@@ -1025,7 +1116,7 @@ export default function ChatPage() {
               <View style={styles.replyContent}>
                 <Text style={[
                   styles.replySenderName,
-                  { color: isOwnMessage ? '#ffffff' : theme.colors.primary }
+                  { color: theme.colors.text }
                 ]}>
                   {item.replyTo.senderName}
                 </Text>
@@ -1033,9 +1124,7 @@ export default function ChatPage() {
                   style={[
                     styles.replyText,
                     { 
-                      color: isOwnMessage 
-                        ? 'rgba(255,255,255,0.95)' 
-                        : '#333333'
+                      color: theme.colors.text
                     }
                   ]}
                   numberOfLines={1}
@@ -1097,7 +1186,7 @@ export default function ChatPage() {
             <View style={styles.messageFooter}>
               <Text style={[
                 styles.modernMessageTime,
-                { color: isOwnMessage ? '#ffffff' : '#757575' }
+                { color: theme.colors.text }
               ]}>
                 {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { 
                   hour: '2-digit', 
@@ -1169,11 +1258,16 @@ export default function ChatPage() {
   const [headerColor1, headerColor2] = getAvatarGradient(userData?.displayName || 'User');
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <ImageBackground
+      source={theme.isDark ? require('../assets/images/chat-bg-dark.jpeg') : require('../assets/images/chat-bg-light.jpeg')}
+      style={styles.backgroundImage}
+      resizeMode="cover"
+    >
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
       {/* Modern Header with Gradient */}
       <View style={styles.modernHeader}>
         <LinearGradient 
-          colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#667eea', '#764ba2']}
+          colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
           style={styles.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -1211,7 +1305,7 @@ export default function ChatPage() {
               <View style={styles.headerTextContainer}>
                 <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
                 <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>
-                  {userPhone ? `${userPhone}` : 'Online'}
+                  {otherUserTyping ? 'typing...' : (userPhone ? `${userPhone}` : 'Online')}
                 </Text>
               </View>
             </View>
@@ -1272,17 +1366,36 @@ export default function ChatPage() {
           style={styles.modernMessagesList}
           contentContainerStyle={styles.modernMessagesContent}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            if (flatListRef.current && messages.length > 0) {
-              flatListRef.current.scrollToEnd({ animated: true });
-            }
-          }}
-          onLayout={() => {
-            if (flatListRef.current && messages.length > 0) {
-              flatListRef.current.scrollToEnd({ animated: false });
-            }
-          }}
+          inverted
+          
         />
+
+        {/* Typing Indicator */}
+        {otherUserTyping && (
+          <View style={[styles.typingIndicator, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.typingContent}>
+              <View style={styles.typingAvatar}>
+                <LinearGradient
+                  colors={getAvatarGradient(userName) as [string, string]}
+                  style={styles.typingAvatarGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Text style={styles.typingAvatarText}>
+                    {userName?.charAt(0)?.toUpperCase() || 'U'}
+                  </Text>
+                </LinearGradient>
+              </View>
+              <View style={styles.typingBubble}>
+                <View style={styles.typingDots}>
+                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Uploading Media Indicator - Integrated in Input Container */}
         {uploadingMedia && (
@@ -1350,13 +1463,13 @@ export default function ChatPage() {
         <View style={[
           styles.modernInputContainer, 
           { 
-            backgroundColor: theme.colors.surface,
-            borderTopColor: theme.colors.border,
+            backgroundColor: 'transparent',
+            borderTopColor: 'transparent',
           }
         ]}>
           <View style={[styles.inputWrapper, { 
-            backgroundColor: theme.colors.inputBackground,
-            borderColor: theme.colors.inputBorder,
+            backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+            borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
           }]}>
             {/* Media Button */}
             <TouchableOpacity
@@ -1403,9 +1516,7 @@ export default function ChatPage() {
                 }
               ]}
               value={newMessage}
-              onChangeText={(text) => {
-                setNewMessage(text);
-              }}
+              onChangeText={handleTextChange}
               placeholder="Type a message..."
               placeholderTextColor={theme.colors.inputPlaceholder}
               multiline
@@ -1423,7 +1534,7 @@ export default function ChatPage() {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={newMessage.trim() ? ['#667eea', '#764ba2'] : [theme.colors.border, theme.colors.border]}
+                colors={newMessage.trim() ? ['#0d9488', '#10b981'] : [theme.colors.border, theme.colors.border]}
                 style={styles.sendButtonGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
@@ -1911,11 +2022,16 @@ export default function ChatPage() {
         </View>
       </Modal>
 
-    </SafeAreaView>
+          </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  // Background image
+  backgroundImage: {
+    flex: 1,
+  },
   // Main container
   container: {
     flex: 1,
@@ -2028,8 +2144,8 @@ const styles = StyleSheet.create({
   },
   modernMessagesContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 0,
+    paddingBottom: 0,
     flexGrow: 1,
   },
 
@@ -2069,15 +2185,11 @@ const styles = StyleSheet.create({
   },
   modernMessageBubble: {
     maxWidth: '78%',
-    paddingHorizontal: 18,
-    paddingVertical: 6,
-    borderRadius: 22,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
+    minWidth: 120,
+    paddingHorizontal: 3,
+    paddingVertical: 3,
+    borderRadius: 12,
+    position: 'relative',
   },
   ownMessageBubble: {
     borderBottomRightRadius: 8,
@@ -2091,6 +2203,7 @@ const styles = StyleSheet.create({
   },
   otherMessageBubble: {
     borderBottomLeftRadius: 8,
+    marginRight:'auto',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -2102,11 +2215,15 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     letterSpacing: 0.2,
+    padding:8
   },
   messageFooter: {
+    // position: 'absolute',
+    bottom: 4,
+    right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     marginTop: 2,
   },
   modernMessageTime: {
@@ -2117,6 +2234,7 @@ const styles = StyleSheet.create({
   messageStatus: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginLeft: 8,
   },
   readReceipts: {
     flexDirection: 'row',
@@ -2134,13 +2252,8 @@ const styles = StyleSheet.create({
   modernInputContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderTopWidth: 1,
+    borderTopWidth: 0,
     paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -2150,10 +2263,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 3,
     borderWidth: 1,
   },
   mediaButton: {
@@ -2383,13 +2496,13 @@ const styles = StyleSheet.create({
   ownReplyContainer: {
     marginLeft: 'auto',
     maxWidth: '78%',
-    backgroundColor: 'rgba(71, 22, 94, 0.67)',
+    backgroundColor: '#10b981',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.25)',
   },
   otherReplyContainer: {
     maxWidth: '78%',
-    backgroundColor:'rgba(71, 22, 94, 0.67)',
+    backgroundColor:'#0d9488',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.15)',
   },
@@ -2724,6 +2837,49 @@ const styles = StyleSheet.create({
   selectedMessageTime: {
     fontSize: 11,
     fontWeight: '400',
+    opacity: 0.7,
+  },
+
+  // Typing indicator styles
+  typingIndicator: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  typingContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  typingAvatar: {
+    marginRight: 12,
+  },
+  typingAvatarGradient: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  typingAvatarText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000',
+  },
+  typingBubble: {
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderBottomLeftRadius: 8,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 2,
     opacity: 0.7,
   },
 });

@@ -38,10 +38,18 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = (duration: number) => {
+    // Handle both seconds and milliseconds
+    // If duration is greater than 1000, it's likely in milliseconds
+    const seconds = duration > 1000 ? duration / 1000 : duration;
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getDurationInSeconds = (duration: number) => {
+    // Convert duration to seconds if it's in milliseconds
+    return duration > 1000 ? duration / 1000 : duration;
   };
 
   const handleImagePress = () => {
@@ -210,7 +218,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
            <TouchableOpacity 
              style={[
                styles.downloadButton, 
-               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+               { backgroundColor: theme.isDark ? theme.colors.primary : '#10b981' }
              ]}
              onPress={() => handleDownload('image')}
              disabled={isDownloading}
@@ -231,11 +239,11 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
          </View>
        )}
       
-      {message.text && (
+      {/* {message.text && (
         <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
           {message.text}
         </Text>
-      )}
+      )} */}
     </View>
   );
 
@@ -243,22 +251,22 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
     <View style={styles.videoContainer}>
       <TouchableOpacity onPress={handleVideoPress} style={styles.videoTouchable}>
         <View style={[styles.videoThumbnail, { backgroundColor: theme.colors.border }]}>
-          <Ionicons name="play-circle" size={40} color={theme.colors.primary} />
+          <Ionicons name="play-circle" size={40} color={theme.isDark ? theme.colors.primary : '#10b981'} style={{position:'absolute',right:'50%'}}/>
           {message.mediaDuration && (
-            <Text style={[styles.videoDuration, { color: theme.colors.text }]}>
+            <Text style={[styles.videoDuration, { color: '#fff' }]}>
               {formatDuration(message.mediaDuration)}
             </Text>
           )}
         </View>
       </TouchableOpacity>
       
-             {/* Download Button for Videos */}
+        {/* Download Button for Videos */}
        {!downloadState?.isDownloaded && (
          <View style={styles.mediaActionsContainer}>
            <TouchableOpacity 
              style={[
                styles.downloadButton, 
-               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+               { backgroundColor: theme.isDark ? theme.colors.primary : '#10b981' }
              ]}
              onPress={() => handleDownload('video')}
              disabled={isDownloading}
@@ -279,11 +287,11 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
          </View>
        )}
       
-      {message.text && (
+      {/* {message.text && (
         <Text style={[styles.mediaCaption, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
           {message.text}
         </Text>
-      )}
+      )} */}
     </View>
   );
 
@@ -331,7 +339,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
            <TouchableOpacity 
              style={[
                styles.documentActionButton, 
-               { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.primary }
+               { backgroundColor: theme.isDark ? theme.colors.primary : '#10b981' }
              ]}
              onPress={() => handleDownload('document')}
              disabled={isDownloading}
@@ -353,7 +361,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
         <Ionicons 
           name={isPlaying ? "pause" : "play"} 
           size={18} 
-          color={isOwnMessage ? '#ffffff' : theme.colors.primary} 
+          color={theme.isDark ? theme.colors.primary : '#10b981'} 
         />
       </TouchableOpacity>
       
@@ -363,7 +371,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
             style={[
               styles.voiceProgress, 
               { 
-                width: `${(playbackPosition / (message.mediaDuration || 1)) * 100}%`,
+                width: `${(playbackPosition / getDurationInSeconds(message.mediaDuration || 1)) * 100}%`,
                 backgroundColor: isOwnMessage ? '#ffffff' : theme.colors.primary 
               }
             ]} 
@@ -403,9 +411,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   imageContainer: {
-    borderRadius: 12,
+    // borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 6,
+    marginBottom: 0,
   },
   imageTouchable: {
     borderRadius: 12,
@@ -413,8 +421,8 @@ const styles = StyleSheet.create({
   },
   image: {
     width: Math.min(screenWidth * 0.85, 320),
-    height: Math.min(screenWidth * 0.85, 320) * 0.45, // Much shorter height for wider appearance
-    borderRadius: 12,
+    height: Math.min(screenWidth * 0.95, 380) * 0.55, // Much shorter height for wider appearance
+    // borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
   },
@@ -424,9 +432,10 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   videoContainer: {
+    position:'relative',
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 6,
+    marginBottom: 0,
   },
   videoTouchable: {
     borderRadius: 12,
@@ -437,7 +446,8 @@ const styles = StyleSheet.create({
     height: Math.min(screenWidth * 0.85, 320) * 0.45, // Much shorter height for wider appearance
     borderRadius: 12,
     justifyContent: 'center',
-    alignItems: 'center',
+    // alignItems: 'center',
+    // right:'40%',
     position: 'relative',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
@@ -457,10 +467,10 @@ const styles = StyleSheet.create({
   documentContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    padding: 10,
     backgroundColor: 'rgba(0,0,0,0.05)',
     borderRadius: 14,
-    marginBottom: 6,
+    marginBottom: 0,
     minWidth: 220,
     maxWidth: Math.min(screenWidth * 0.85, 320),
     borderWidth: 1,
@@ -498,10 +508,10 @@ const styles = StyleSheet.create({
   voiceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    padding: 10,
     backgroundColor: 'rgba(0,0,0,0.05)',
     borderRadius: 14,
-    marginBottom: 6,
+    marginBottom: 0,
     minWidth: 220,
     maxWidth: Math.min(screenWidth * 0.85, 320),
     borderWidth: 1,
@@ -543,6 +553,9 @@ const styles = StyleSheet.create({
   
   // Media action styles
   mediaActionsContainer: {
+    position:'absolute',
+    right:'5%',
+    top:'0%',
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
@@ -564,7 +577,7 @@ const styles = StyleSheet.create({
   },
   downloadedIndicator: {
     position: 'absolute',
-    bottom: 8,
+    top: 8,
     right: 8,
     width: 32,
     height: 32,
