@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import CountryPicker from '../../components/CountryPicker';
 import { useTheme } from '../../context/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
@@ -31,9 +32,11 @@ export default function LoginScreen() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [selectedCountry, setSelectedCountry] = useState({ name: 'India', code: 'IN', dialCode: '+91', flag: '🇮🇳' });
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
 
   const sendOTP = async () => {
-    if (!phoneNumber || phoneNumber.length < 10) {
+    if (!phoneNumber) {
       Alert.alert("Error", "Please enter a valid phone number");
       return;
     }
@@ -42,7 +45,7 @@ export default function LoginScreen() {
       setLoading(true);
       const formattedPhone = phoneNumber.startsWith("+")
         ? phoneNumber
-        : `+91${phoneNumber}`;
+        : `${selectedCountry.dialCode}${phoneNumber}`;
 
       const confirmation = await auth().signInWithPhoneNumber(formattedPhone);
       setVerificationId(confirmation.verificationId);
@@ -81,7 +84,7 @@ export default function LoginScreen() {
       setLoading(true);
       const credential = auth.PhoneAuthProvider.credential(verificationId, otp);
       await auth().signInWithCredential(credential);
-      Alert.alert("Success", "Login Successful");
+      // Don't show alert, just navigate - the AuthContext will handle the rest
       router.replace("/(tabs)/home");
     } catch (error: any) {
       console.error("OTP Verification Error:", error);
@@ -143,7 +146,7 @@ export default function LoginScreen() {
                 <Text style={styles.subtitle}>
                   {step === 'phone' 
                     ? 'Sign in with your phone number' 
-                    : `OTP sent to ${phoneNumber}`
+                    : `OTP sent to ${selectedCountry.dialCode}${phoneNumber}`
                   }
                 </Text>
               </LinearGradient>
@@ -161,9 +164,14 @@ export default function LoginScreen() {
                       borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
                       shadowColor: theme.isDark ? '#000' : '#0d9488',
                     }]}>
-                      <View style={[styles.countryCodeContainer, { backgroundColor: theme.colors.primary }]}>
-                        <Text style={styles.countryCode}>+91</Text>
-                      </View>
+                      <TouchableOpacity 
+                        style={[styles.countryCodeContainer, { backgroundColor: theme.colors.primary }]}
+                        onPress={() => setShowCountryPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.countryFlag}>{selectedCountry.flag}</Text>
+                        <Text style={styles.countryCode}>{selectedCountry.dialCode}</Text>
+                      </TouchableOpacity>
                       <TextInput
                         placeholder="Enter your phone number"
                         placeholderTextColor={theme.colors.inputPlaceholder}
@@ -171,7 +179,7 @@ export default function LoginScreen() {
                         keyboardType="phone-pad"
                         value={phoneNumber}
                         onChangeText={setPhoneNumber}
-                        maxLength={10}
+                        // maxLength={10}
                       />
                     </View>
                   </View>
@@ -280,6 +288,14 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Country Picker Modal */}
+      <CountryPicker
+        visible={showCountryPicker}
+        onClose={() => setShowCountryPicker(false)}
+        onSelectCountry={setSelectedCountry}
+        selectedCountry={selectedCountry}
+      />
     </SafeAreaView>
   );
 }
@@ -391,15 +407,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   countryCodeContainer: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderTopLeftRadius: 15,
     borderBottomLeftRadius: 15,
+    minWidth: 80,
   },
   countryCode: {
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  countryFlag: {
+    fontSize: 18,
+    marginRight: 4,
   },
   phoneInput: {
     flex: 1,

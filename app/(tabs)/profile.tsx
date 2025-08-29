@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   ScrollView,
   StyleSheet,
@@ -17,13 +18,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useNotifications } from '../../context/NotificationContext';
 import { useTheme } from '../../context/ThemeContext';
 
 interface UserData {
   firstName: string;
   lastName: string;
   phoneNumber: string;
-  email: string;
+  // email: string;
   displayName: string;
   createdAt: any;
   isOnline: boolean;
@@ -31,13 +33,34 @@ interface UserData {
   profileImageUrl?: string;
 }
 
+interface DeletedChat {
+  uid: string;
+  name: string;
+  phoneNumber: string;
+  lastMessage: string;
+  lastMessageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice';
+  lastMessageTime: any;
+  profileImageUrl?: string;
+  chatId: string;
+}
+
 export default function Profile() {
   const router = useRouter();
   const { theme, isDark, toggleTheme } = useTheme();
+  const { 
+    fcmToken, 
+    isNotificationsEnabled, 
+    requestPermissions, 
+    sendTestNotification,
+    clearNotifications,
+    refreshNotificationStatus
+  } = useNotifications();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [deletedChats, setDeletedChats] = useState<DeletedChat[]>([]);
+  const [loadingDeletedChats, setLoadingDeletedChats] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -60,6 +83,97 @@ export default function Profile() {
 
     fetchUserData();
   }, []);
+
+  // Fetch deleted chats when component mounts
+  useEffect(() => {
+    if (userData) {
+      fetchDeletedChats();
+    }
+  }, [userData]);
+
+  const fetchDeletedChats = async () => {
+    const user = auth().currentUser;
+    if (!user) return;
+
+    setLoadingDeletedChats(true);
+    try {
+      const chatsSnapshot = await firestore()
+        .collection('chats')
+        .where('participants', 'array-contains', user.uid)
+        .get();
+
+      const deletedChatsList: DeletedChat[] = [];
+      
+      for (const chatDoc of chatsSnapshot.docs) {
+        const chatData = chatDoc.data();
+        const chatMetadata = chatData.metadata?.[user.uid] || {};
+        
+        // Only include chats that are marked as deleted for the current user
+        if (chatMetadata.deletedFor) {
+          const participants = chatData.participants || [];
+          const participantNames = chatData.participantNames || [];
+          
+          // Find the other participant (not current user)
+          const otherParticipantIndex = participants.findIndex((uid: string) => uid !== user.uid);
+          if (otherParticipantIndex !== -1) {
+            const otherUserId = participants[otherParticipantIndex];
+            const otherUserName = participantNames[otherParticipantIndex] || 'Unknown';
+            
+            // Get user details from users collection
+            try {
+              const userDoc = await firestore()
+                .collection('users')
+                .doc(otherUserId)
+                .get();
+            
+              if (userDoc.exists) {
+                const userData = userDoc.data();
+                deletedChatsList.push({
+                  uid: otherUserId,
+                  name: userData?.displayName || otherUserName,
+                  phoneNumber: userData?.phoneNumber || '',
+                  lastMessage: chatData.lastMessage || '',
+                  lastMessageType: chatData.lastMessageType || 'text',
+                  lastMessageTime: chatData.lastMessageTime || null,
+                  profileImageUrl: userData?.profileImageUrl,
+                  chatId: chatDoc.id,
+                });
+              }
+            } catch (error) {
+              console.error('Error fetching user data for deleted chat:', error);
+            }
+          }
+        }
+      }
+      
+      setDeletedChats(deletedChatsList);
+    } catch (error) {
+      console.error('Error fetching deleted chats:', error);
+    } finally {
+      setLoadingDeletedChats(false);
+    }
+  };
+
+  const restoreChat = async (chat: DeletedChat) => {
+    const user = auth().currentUser;
+    if (!user) return;
+
+    try {
+      // Mark chat as not deleted for the current user (restore)
+      await firestore().collection('chats').doc(chat.chatId).update({
+        [`metadata.${user.uid}.deletedFor`]: false,
+        [`metadata.${user.uid}.deletedAt`]: firestore.FieldValue.delete(),
+      });
+      
+      // Remove from deleted chats list
+      setDeletedChats(prev => prev.filter(c => c.chatId !== chat.chatId));
+      
+      // Alert.alert('Success', `Chat with ${chat.name} restored successfully!`);
+    } catch (error) {
+      console.error('Error restoring chat:', error);
+      // Alert.alert('Error', 'Failed to restore chat. Please try again.');
+    }
+  };
 
   const requestImagePermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -123,7 +237,7 @@ export default function Profile() {
       setProfileImage(downloadURL);
       setUserData(prev => prev ? { ...prev, profileImageUrl: downloadURL } : null);
       
-      Alert.alert('Success', 'Profile image updated successfully!');
+      // Alert.alert('Success', 'Profile image updated successfully!');
     } catch (error) {
       console.error('Error uploading image:', error);
       Alert.alert('Error', 'Failed to upload image. Please try again.');
@@ -167,6 +281,8 @@ export default function Profile() {
     );
   };
 
+
+
   const formatDate = (date: any) => {
     if (!date) return "N/A";
     try {
@@ -196,6 +312,56 @@ export default function Profile() {
     ];
     const index = name.charCodeAt(0) % gradients.length;
     return gradients[index];
+  };
+
+  const renderDeletedChat = ({ item }: { item: DeletedChat }) => {
+    const [color1, color2] = getAvatarGradient(item.name);
+    
+    return (
+      <View style={[styles.deletedChatItem, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.deletedChatAvatar}>
+          {item.profileImageUrl ? (
+            <Image source={{ uri: item.profileImageUrl }} style={styles.deletedChatProfileImage} />
+          ) : (
+            <LinearGradient
+              colors={[color1, color2]}
+              style={styles.deletedChatAvatarGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={styles.deletedChatAvatarText}>
+                {item.name.charAt(0).toUpperCase()}
+              </Text>
+            </LinearGradient>
+          )}
+        </View>
+        
+        <View style={styles.deletedChatInfo}>
+          <Text style={[styles.deletedChatName, { color: theme.colors.text }]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={[styles.deletedChatMessage, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+            {item.lastMessage || 'No messages'}
+          </Text>
+        </View>
+        
+        <TouchableOpacity
+          style={styles.restoreButton}
+          onPress={() => restoreChat(item)}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#10b981', '#059669']}
+            style={styles.restoreButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="refresh" size={16} color="#ffffff" />
+            <Text style={styles.restoreButtonText}>Restore</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   if (loading) {
@@ -273,13 +439,14 @@ export default function Profile() {
               )}
               {userData?.isOnline && (
                 <View style={styles.onlineStatusIndicator} />
+                
               )}
             </TouchableOpacity>
             
             <Text style={[styles.modernUserName, { color: '#FFFFFF'}]}>
               {userData?.displayName || 'User'}
             </Text>
-            <View style={styles.statusContainer}>
+            {/* <View style={styles.statusContainer}>
               <View style={[
                 styles.statusDot, 
                 { backgroundColor: userData?.isOnline ? '#00d4aa' : '#ff6b6b' }
@@ -287,7 +454,7 @@ export default function Profile() {
               <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
                 {userData?.isOnline ? 'Online' : 'Offline'}
               </Text>
-            </View>
+            </View> */}
             
             <TouchableOpacity 
               style={styles.uploadButton}
@@ -346,13 +513,7 @@ export default function Profile() {
                 {userData?.phoneNumber || 'N/A'}
               </Text>
             </View>
-            
-            <View style={[styles.modernInfoRow, { borderBottomWidth: 0 }]}>
-              <Text style={[styles.modernInfoLabel, { color: theme.colors.textSecondary }]}>Email</Text>
-              <Text style={[styles.modernInfoValue, { color: theme.colors.text }]}>
-                {userData?.email || 'N/A'}
-              </Text>
-            </View>
+
           </View>
         </View>
 
@@ -381,6 +542,33 @@ export default function Profile() {
           </View>
         </View>
       </View>
+
+      {/* Deleted Chats Section */}
+      {deletedChats.length > 0 && (
+        <View style={styles.deletedChatsContainer}>
+          <View style={[styles.modernCard, { backgroundColor: theme.colors.card }]}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.cardIcon, { backgroundColor: '#ff6b6b20' }]}>
+                <Ionicons name="trash" size={20} color="#ff6b6b" />
+              </View>
+              <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Deleted Chats</Text>
+              <Text style={[styles.deletedChatsCount, { color: theme.colors.textSecondary }]}>
+                {deletedChats.length}
+              </Text>
+            </View>
+            
+            <FlatList
+              data={deletedChats}
+              renderItem={renderDeletedChat}
+              keyExtractor={(item) => item.chatId}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+            />
+          </View>
+        </View>
+      )}
+
+
 
       {/* Modern Logout Button */}
       <View style={styles.modernButtonContainer}>
@@ -646,6 +834,116 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     textAlign: 'right',
     flex: 1,
+  },
+  statusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+
+  notificationActions: {
+    marginTop: 20,
+    gap: 10,
+  },
+  notificationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 15,
+    gap: 8,
+  },
+  notificationButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Deleted chats section
+  deletedChatsContainer: {
+    padding: 20,
+    marginTop: 0,
+  },
+  deletedChatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  deletedChatAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  deletedChatAvatarGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deletedChatProfileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  deletedChatAvatarText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  deletedChatInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  deletedChatName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deletedChatMessage: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  restoreButton: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  restoreButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    gap: 5,
+  },
+  restoreButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  deletedChatsCount: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 10,
   },
 
   // Modern logout button

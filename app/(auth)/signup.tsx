@@ -19,7 +19,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import CountryPicker from '../../components/CountryPicker';
 import { useTheme } from '../../context/ThemeContext';
+import LocationService from '../../utils/LocationService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -34,6 +36,8 @@ export default function SignupScreen() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'details' | 'otp'>('details');
+  const [selectedCountry, setSelectedCountry] = useState({ name: 'India', code: 'IN', dialCode: '+91', flag: '🇮🇳' });
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
 
   const sendOTP = async () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -41,7 +45,7 @@ export default function SignupScreen() {
       return;
     }
 
-    if (!phoneNumber || phoneNumber.length < 10) {
+    if (!phoneNumber) {
       Alert.alert("Error", "Please enter a valid phone number");
       return;
     }
@@ -50,7 +54,7 @@ export default function SignupScreen() {
       setLoading(true);
       const formattedPhone = phoneNumber.startsWith("+")
         ? phoneNumber
-        : `+91${phoneNumber}`;
+        : `${selectedCountry.dialCode}${phoneNumber}`;
       console.log("formattedPhone", formattedPhone);
       
       // For production, Firebase will automatically handle reCAPTCHA
@@ -99,15 +103,24 @@ export default function SignupScreen() {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         displayName: `${firstName.trim()} ${lastName.trim()}`,
-        phoneNumber: phoneNumber.startsWith("+") ? phoneNumber : `+91${phoneNumber}`,
+        phoneNumber: phoneNumber.startsWith("+") ? phoneNumber : `${selectedCountry.dialCode}${phoneNumber}`,
         email: user.email || null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isOnline: true,
+        lastSeen: null,
       };
 
       await firestore().collection('users').doc(user.uid).set(userData);
       
-      Alert.alert("Success", "Account created successfully!");
+      // Request location permission after successful signup
+      try {
+        await LocationService.requestPermissions();
+      } catch (error) {
+        console.log('Location permission not granted, but user can still use the app');
+      }
+      
+      // Don't show alert, just navigate - the AuthContext will handle the rest
       router.replace("/(tabs)/home");
     } catch (error: any) {
       console.error("OTP Verification Error:", error);
@@ -169,7 +182,7 @@ export default function SignupScreen() {
                 <Text style={styles.subtitle}>
                   {step === 'details' 
                     ? 'Sign up with your details' 
-                    : `OTP sent to ${phoneNumber}`
+                    : `OTP sent to ${selectedCountry.dialCode}${phoneNumber}`
                   }
                 </Text>
               </LinearGradient>
@@ -221,9 +234,14 @@ export default function SignupScreen() {
                       borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
                       shadowColor: theme.isDark ? '#000' : '#0d9488',
                     }]}>
-                      <View style={[styles.countryCodeContainer, { backgroundColor: theme.colors.primary }]}>
-                        <Text style={styles.countryCode}>+91</Text>
-                      </View>
+                      <TouchableOpacity 
+                        style={[styles.countryCodeContainer, { backgroundColor: theme.colors.primary }]}
+                        onPress={() => setShowCountryPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.countryFlag}>{selectedCountry.flag}</Text>
+                        <Text style={styles.countryCode}>{selectedCountry.dialCode}</Text>
+                      </TouchableOpacity>
                       <TextInput
                         placeholder="Enter your phone number"
                         placeholderTextColor={theme.colors.inputPlaceholder}
@@ -231,7 +249,7 @@ export default function SignupScreen() {
                         keyboardType="phone-pad"
                         value={phoneNumber}
                         onChangeText={setPhoneNumber}
-                        maxLength={10}
+                        // maxLength={10}
                       />
                     </View>
                   </View>
@@ -340,6 +358,14 @@ export default function SignupScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Country Picker Modal */}
+      <CountryPicker
+        visible={showCountryPicker}
+        onClose={() => setShowCountryPicker(false)}
+        onSelectCountry={setSelectedCountry}
+        selectedCountry={selectedCountry}
+      />
     </SafeAreaView>
   );
 }
@@ -458,15 +484,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   countryCodeContainer: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderTopLeftRadius: 15,
     borderBottomLeftRadius: 15,
+    minWidth: 80,
   },
   countryCode: {
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  countryFlag: {
+    fontSize: 18,
+    marginRight: 4,
   },
   phoneInput: {
     flex: 1,

@@ -3,8 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -64,11 +64,7 @@ export default function Groups() {
   const [joinGroupId, setJoinGroupId] = useState("");
   const [showInnerGroups, setShowInnerGroups] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchGroups();
-  }, []);
-
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       setLoading(true);
       const user = auth().currentUser;
@@ -106,11 +102,100 @@ export default function Groups() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Add real-time listener for groups
+  useEffect(() => {
+    if (!auth().currentUser?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    const user = auth().currentUser;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    // Set up real-time listener for groups where user is a member
+    const unsubscribe = firestore()
+      .collection('groups')
+      .where('members', 'array-contains', user.uid)
+      .onSnapshot((snapshot) => {
+        const userGroupsData: Group[] = [];
+        snapshot.forEach(doc => {
+          const groupData = doc.data();
+          
+          // Filter inner groups to only show those where the user is a member
+          let filteredInnerGroups: InnerGroup[] = [];
+          if (groupData.innerGroups && Array.isArray(groupData.innerGroups)) {
+            filteredInnerGroups = groupData.innerGroups.filter((innerGroup: InnerGroup) => 
+              innerGroup.members && innerGroup.members.includes(user.uid)
+            );
+          }
+          
+          userGroupsData.push({ 
+            id: doc.id, 
+            ...groupData,
+            innerGroups: filteredInnerGroups // Only show inner groups where user is a member
+          } as Group);
+        });
+
+        setUserGroups(userGroupsData);
+        setLoading(false);
+      }, (error) => {
+        console.error("Error in groups listener:", error);
+        setLoading(false);
+        Alert.alert("Error", "Failed to load groups. Please try again.");
+      });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Also listen for changes in user's membership status
+  useEffect(() => {
+    if (!auth().currentUser?.uid) {
+      return;
+    }
+
+    const user = auth().currentUser;
+    if (!user) {
+      return;
+    }
+
+    // Listen for changes in user document to detect if they were removed from any groups
+    const userUnsubscribe = firestore()
+      .collection('users')
+      .doc(user.uid)
+      .onSnapshot((doc) => {
+        if (doc.exists) {
+          // If user document changes, refresh groups to ensure accuracy
+          fetchGroups();
+        }
+      }, (error) => {
+        console.error("Error in user listener:", error);
+      });
+
+    return () => userUnsubscribe();
+  }, [fetchGroups]);
+
+  // Add focus effect to refresh groups when returning to this screen
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh groups when screen comes into focus
+      fetchGroups();
+    }, [fetchGroups])
+  );
+
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setLoading(true);
+    await fetchGroups();
   };
 
   const createGroup = async () => {
     if (!newGroupName.trim()) {
-      Alert.alert("Error", "Please enter a group name");
+      // Alert.alert("Error", "Please enter a group name");
       return;
     }
 
@@ -134,21 +219,25 @@ export default function Groups() {
       };
 
       await firestore().collection('groups').add(groupData);
+      setShowCreateModal(false);
+      setNewGroupName("");
+      setNewGroupDescription("");
+      fetchGroups();
 
-      Alert.alert("Success", "Group created successfully!", [
-        {
-          text: "OK",
-          onPress: () => {
-            setShowCreateModal(false);
-            setNewGroupName("");
-            setNewGroupDescription("");
-            fetchGroups();
-          }
-        }
-      ]);
+      // Alert.alert("Success", "Group created successfully!", [
+      //   {
+      //     text: "OK",
+      //     onPress: () => {
+      //       setShowCreateModal(false);
+      //       setNewGroupName("");
+      //       setNewGroupDescription("");
+      //       fetchGroups();
+      //     }
+      //   }
+      // ]);
     } catch (error) {
       console.error("Error creating group:", error);
-      Alert.alert("Error", "Failed to create group");
+      // Alert.alert("Error", "Failed to create group");
     } finally {
       setCreating(false);
     }
@@ -156,7 +245,7 @@ export default function Groups() {
 
   const joinGroup = async () => {
     if (!joinGroupId.trim()) {
-      Alert.alert("Error", "Please enter a group invite code");
+      // Alert.alert("Error", "Please enter a group invite code");
       return;
     }
 
@@ -188,16 +277,16 @@ export default function Groups() {
         memberCount: firestore.FieldValue.increment(1)
       });
 
-      Alert.alert("Success", "Joined group successfully!", [
-        {
-          text: "OK",
-          onPress: () => {
-            setShowJoinModal(false);
-            setJoinGroupId("");
-            fetchGroups();
-          }
-        }
-      ]);
+      // Alert.alert("Success", "Joined group successfully!", [
+      //   {
+      //     text: "OK",
+      //     onPress: () => {
+      //       setShowJoinModal(false);
+      //       setJoinGroupId("");
+      //       fetchGroups();
+      //     }
+      //   }
+      // ]);
     } catch (error) {
       console.error("Error joining group:", error);
       Alert.alert("Error", "Failed to join group");
@@ -291,7 +380,7 @@ export default function Groups() {
   };
 
   const renderGroupItem = ({ item }: { item: Group }) => {
-    const [color1, color2] = getGroupGradient(item.name);
+    const [color1, color2] = getGroupGradient(item.name); 
     const isAdmin = item.createdBy === auth().currentUser?.uid;
     const hasInnerGroups = item.innerGroups && item.innerGroups.length > 0;
 
@@ -411,7 +500,7 @@ export default function Groups() {
             </View>
             <TouchableOpacity
               style={styles.headerActionButton}
-              onPress={fetchGroups}
+              onPress={handleRefresh}
               disabled={loading}
               activeOpacity={0.7}
             >
@@ -470,6 +559,8 @@ export default function Groups() {
           contentContainerStyle={styles.groupsListContent}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.groupSeparator} />}
+          refreshing={loading}
+          onRefresh={handleRefresh}
         />
       ) : (
         <View style={styles.modernEmptyState}>
@@ -774,6 +865,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
+    borderBottomRightRadius: 25,
+    borderBottomLeftRadius: 25,
   },
   headerGradient: {
     paddingTop: 50,
@@ -894,7 +987,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   modernGroupName: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     flex: 1,
     marginRight: 8,

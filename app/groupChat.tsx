@@ -225,7 +225,7 @@ export default function GroupChatPage() {
         if (!groupId) return;
 
         const messagesRef = getMessageCollectionPath();
-        
+
         const unsubscribe = messagesRef
             .orderBy('timestamp', 'desc')
             .onSnapshot((snapshot: any) => {
@@ -317,7 +317,7 @@ export default function GroupChatPage() {
     // Handle text input changes for typing indicator
     const handleTextChange = (text: string) => {
         setNewMessage(text);
-        
+
         // Clear existing timeout
         if (typingTimeout) {
             clearTimeout(typingTimeout);
@@ -695,10 +695,10 @@ export default function GroupChatPage() {
         setUploadingMessage(`Uploading ${type}...`);
 
         try {
-           
+
 
             for (const mediaFile of mediaFiles) {
-              
+
 
                 // Validate required fields
                 if (!mediaFile.uri) {
@@ -713,14 +713,14 @@ export default function GroupChatPage() {
 
                 // Upload media to Firebase Storage first
                 const fileName = `${type}/${groupId}/${Date.now()}_${mediaFile.fileName || mediaFile.name || 'file'}`;
-                
-                
+
+
                 const reference = storage().ref().child(fileName);
 
                 // Convert local URI to blob
                 const response = await fetch(mediaFile.uri);
                 const blob = await response.blob();
-                
+
 
                 // Track upload progress
                 const uploadTask = reference.put(blob);
@@ -737,7 +737,7 @@ export default function GroupChatPage() {
 
                 // Get download URL
                 const mediaUrl = await reference.getDownloadURL();
-               
+
 
                 const messageData: any = {
                     messageType: type,
@@ -752,12 +752,12 @@ export default function GroupChatPage() {
                 };
 
                 // Validate messageData before sending
-               
+
                 // Check for undefined values
                 const undefinedFields = Object.entries(messageData)
                     .filter(([key, value]) => value === undefined)
                     .map(([key]) => key);
-                
+
                 if (undefinedFields.length > 0) {
                     console.error('❌ Found undefined fields:', undefinedFields);
                     throw new Error(`Undefined fields found: ${undefinedFields.join(', ')}`);
@@ -767,13 +767,13 @@ export default function GroupChatPage() {
                 const nullFields = Object.entries(messageData)
                     .filter(([key, value]) => value === null)
                     .map(([key]) => key);
-                
+
                 if (nullFields.length > 0) {
                     console.error('❌ Found null fields:', nullFields);
                     throw new Error(`Null fields found: ${nullFields.join(', ')}`);
                 }
 
-                
+
 
                 if (type === 'image' || type === 'video') {
                     // For videos, add video-specific properties
@@ -784,7 +784,7 @@ export default function GroupChatPage() {
                         // Add text for video messages to prevent undefined field error
                         messageData.text = '🎥 Video';
                     }
-                    if(type === 'image'){
+                    if (type === 'image') {
                         messageData.messageType = 'image';
                         // Add text for image messages to prevent undefined field error
                         messageData.text = '📷 Image';
@@ -804,14 +804,14 @@ export default function GroupChatPage() {
                     };
                 }
 
-               
+
 
                 // Use conditional collection path
                 const messagesRef = getMessageCollectionPath();
-                
-                
+
+
                 await messagesRef.add(messageData);
-               
+
 
                 // Update group metadata based on collection type
                 if (innerGroupId) {
@@ -839,17 +839,17 @@ export default function GroupChatPage() {
                             lastUpdated: FieldValue.serverTimestamp(),
                         });
                 }
-                
-               
+
+
             }
 
             setReplyingTo(null);
             setShowMediaPicker(false);
             showCustomAlert('Success', 'Media sent successfully!', 'success');
-           
+
         } catch (error: any) {
             console.error('=== Error in sendMediaMessage ===');
-           
+
             showCustomAlert('Error', `Failed to send media: ${error.message}`, 'error');
         } finally {
             setUploadingMedia(false);
@@ -1069,7 +1069,7 @@ export default function GroupChatPage() {
             if (isOwnMessage) {
                 return (
                     <LinearGradient
-                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']} 
+                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
                         style={[
                             styles.modernMessageBubble,
                             styles.ownMessageBubble,
@@ -1109,7 +1109,7 @@ export default function GroupChatPage() {
                         </Text>
                     </View>
                 )}
-                
+
                 <TouchableOpacity
                     onLongPress={() => showMessageActions(item)}
                     onPress={() => {
@@ -1180,27 +1180,29 @@ export default function GroupChatPage() {
                                     handleMediaPress(item);
                                 }}
                                 onDocumentPress={() => handleDocumentPress(item)}
+                                onLongPress={() => showMessageActions(item)}
                             />
                         ) : (
-                            <Text style={[
-                                styles.modernMessageText,
-                                { color: isOwnMessage ? '#ffffff' : '#424242' }
-                            ]}>
-                                {item.text || 'Message'}
-                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 0, alignItems: 'flex-end', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <Text style={[
+                                    styles.modernMessageText,
+                                    { color: isOwnMessage ? '#ffffff' : '#424242' }
+                                ]}>
+                                    {item.text || 'Message'}
+                                </Text>
+                                <Text style={[
+                                    styles.modernMessageTime,
+                                    { color: isOwnMessage ? '#ffffff' : '#757575' }
+                                ]}>
+                                    {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], {
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    }) : '--:--'}
+                                </Text>
+                            </View>
+
                         )}
 
-                        <View style={styles.messageFooter}>
-                            <Text style={[
-                                styles.modernMessageTime,
-                                { color: isOwnMessage ? '#ffffff' : '#757575' }
-                            ]}>
-                                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                }) : '--:--'}
-                            </Text>
-                        </View>
                     </MessageBubble>
                 </TouchableOpacity>
             </View>
@@ -1227,625 +1229,625 @@ export default function GroupChatPage() {
         >
             <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
                 {/* Modern Header with Gradient - Clickable for Group Management */}
-            <TouchableOpacity onPress={openGroupManagement} activeOpacity={0.8}>
-                <View style={styles.modernHeader}>
-                    <LinearGradient
-                        colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
-                        style={styles.headerGradient}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                    >
-                        <View style={styles.headerContent}>
-                            <TouchableOpacity
-                                onPress={() => router.back()}
-                                style={styles.modernBackButton}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.backButtonContainer}>
-                                    <Ionicons name="arrow-back" size={22} color="#ffffff" />
-                                </View>
-                            </TouchableOpacity>
+                <TouchableOpacity onPress={openGroupManagement} activeOpacity={0.8}>
+                    <View style={styles.modernHeader}>
+                        <LinearGradient
+                            colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
+                            style={styles.headerGradient}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                        >
+                            <View style={styles.headerContent}>
+                                <TouchableOpacity
+                                    onPress={() => router.back()}
+                                    style={styles.modernBackButton}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.backButtonContainer}>
+                                        <Ionicons name="arrow-back" size={22} color="#ffffff" />
+                                    </View>
+                                </TouchableOpacity>
 
-                            <View style={styles.modernHeaderInfo}>
-                                <View style={styles.chatUserAvatar}>
-                                    {group?.profileImageUrl ? (
-                                        <Image source={{ uri: group.profileImageUrl }} style={styles.headerAvatarImage} />
-                                    ) : (
-                                        <LinearGradient
-                                            colors={[headerColor1, headerColor2]}
-                                            style={styles.headerAvatarGradient}
-                                            start={{ x: 0, y: 0 }}
-                                            end={{ x: 1, y: 1 }}
-                                        >
-                                            <Text style={[styles.headerAvatarText, { color: '#000' }]}>
-                                                {groupName?.charAt(0)?.toUpperCase() || 'G'}
-                                            </Text>
-                                        </LinearGradient>
-                                    )}
+                                <View style={styles.modernHeaderInfo}>
+                                    <View style={styles.chatUserAvatar}>
+                                        {group?.profileImageUrl ? (
+                                            <Image source={{ uri: group.profileImageUrl }} style={styles.headerAvatarImage} />
+                                        ) : (
+                                            <LinearGradient
+                                                colors={[headerColor1, headerColor2]}
+                                                style={styles.headerAvatarGradient}
+                                                start={{ x: 0, y: 0 }}
+                                                end={{ x: 1, y: 1 }}
+                                            >
+                                                <Text style={[styles.headerAvatarText, { color: '#000' }]}>
+                                                    {groupName?.charAt(0)?.toUpperCase() || 'G'}
+                                                </Text>
+                                            </LinearGradient>
+                                        )}
+                                    </View>
+                                    <View style={styles.headerTextContainer}>
+                                        <Text style={[styles.modernHeaderName, { color: '#ffffff' }]}>{groupName || 'Group Chat'}</Text>
+                                        <Text style={[styles.modernHeaderStatus, { color: 'rgba(255,255,255,0.8)' }]}>
+                                            {typingUsers.size > 0 ? `${typingUsers.size} typing...` : 'Group Chat • Tap for details'}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
                                 </View>
-                                <View style={styles.headerTextContainer}>
-                                    <Text style={[styles.modernHeaderName, { color: '#ffffff' }]}>{groupName || 'Group Chat'}</Text>
-                                    <Text style={[styles.modernHeaderStatus, { color: 'rgba(255,255,255,0.8)' }]}>
-                                        {typingUsers.size > 0 ? `${typingUsers.size} typing...` : 'Group Chat • Tap for details'}
+                            </View>
+                        </LinearGradient>
+                    </View>
+                </TouchableOpacity>
+
+                {/* Pinned Message */}
+                {pinnedMessage && (
+                    <View style={[styles.pinnedMessageContainer, { backgroundColor: 'transparent' }]}>
+                        <Ionicons name="pin" size={16} color="#FFD700" />
+                        <Text style={styles.pinnedMessageText} numberOfLines={1}>
+                            {pinnedMessage.senderName || 'Unknown'}: {pinnedMessage.text || 'Message'}
+                        </Text>
+                        <TouchableOpacity onPress={unpinMessage}>
+                            <Ionicons name="close" size={16} color="#666" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Reply Indicator */}
+                {replyingTo && (
+                    <View style={[styles.replyContainer, { backgroundColor: 'transparent' }]}>
+                        <View style={styles.replyContent}>
+                            <Text style={styles.replyInputLabel}>Replying to {replyingTo.senderName || 'Unknown'}</Text>
+                            <Text style={styles.replyText} numberOfLines={1}>{replyingTo.text || 'Message'}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => setReplyingTo(null)}>
+                            <Ionicons name="close" size={20} color="#666" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Messages and Input with proper keyboard handling */}
+                <KeyboardAvoidingView
+                    style={styles.chatBody}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    keyboardVerticalOffset={0}
+                >
+                    <FlatList
+                        ref={flatListRef}
+                        data={messages}
+                        renderItem={renderMessage}
+                        keyExtractor={(item) => item.id}
+                        style={styles.modernMessagesList}
+                        contentContainerStyle={styles.modernMessagesContent}
+                        showsVerticalScrollIndicator={false}
+                        inverted={true}
+                    />
+
+                    {/* Typing Indicators */}
+                    {typingUsers.size > 0 && (
+                        <View style={[styles.typingIndicator, { backgroundColor: 'transparent' }]}>
+                            <View style={styles.typingContent}>
+                                <View style={styles.typingAvatar}>
+                                    <LinearGradient
+                                        colors={getAvatarGradient('Group') as [string, string]}
+                                        style={styles.typingAvatarGradient}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 1 }}
+                                    >
+                                        <Text style={styles.typingAvatarText}>
+                                            👥
+                                        </Text>
+                                    </LinearGradient>
+                                </View>
+                                <View style={styles.typingBubble}>
+                                    <Text style={[styles.typingText, { color: theme.colors.textSecondary }]}>
+                                        {typingUsers.size === 1 ? 'Someone is typing...' : `${typingUsers.size} people are typing...`}
                                     </Text>
+                                    <View style={styles.typingDots}>
+                                        <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                        <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                        <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                                    </View>
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
                             </View>
                         </View>
-                    </LinearGradient>
-                </View>
-            </TouchableOpacity>
+                    )}
 
-            {/* Pinned Message */}
-            {pinnedMessage && (
-                <View style={[styles.pinnedMessageContainer, { backgroundColor: 'transparent' }]}>
-                    <Ionicons name="pin" size={16} color="#FFD700" />
-                    <Text style={styles.pinnedMessageText} numberOfLines={1}>
-                        {pinnedMessage.senderName || 'Unknown'}: {pinnedMessage.text || 'Message'}
-                    </Text>
-                    <TouchableOpacity onPress={unpinMessage}>
-                        <Ionicons name="close" size={16} color="#666" />
-                    </TouchableOpacity>
-                </View>
-            )}
+                    {/* Uploading Media Indicator - Integrated in Input Container */}
+                    {uploadingMedia && (
+                        <View style={[styles.uploadingIndicator, { backgroundColor: 'transparent' }]}>
+                            <View style={styles.uploadingContent}>
+                                <ActivityIndicator size="small" color={theme.colors.primary} />
+                                <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
+                                    {uploadingMessage || 'Uploading...'}
+                                </Text>
+                                <View style={styles.uploadingProgressContainer}>
+                                    <View style={[styles.uploadingProgressBar, { backgroundColor: theme.colors.border }]}>
+                                        <View
+                                            style={[
+                                                styles.uploadingProgressFill,
+                                                {
+                                                    width: `${uploadProgress}%`,
+                                                    backgroundColor: theme.colors.primary
+                                                }
+                                            ]}
+                                        />
+                                    </View>
+                                    <Text style={[styles.uploadingProgressText, { color: theme.colors.primary }]}>
+                                        {Math.round(uploadProgress)}%
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    )}
 
-            {/* Reply Indicator */}
-            {replyingTo && (
-                <View style={[styles.replyContainer, { backgroundColor: 'transparent' }]}>
-                    <View style={styles.replyContent}>
-                        <Text style={styles.replyInputLabel}>Replying to {replyingTo.senderName || 'Unknown'}</Text>
-                        <Text style={styles.replyText} numberOfLines={1}>{replyingTo.text || 'Message'}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setReplyingTo(null)}>
-                        <Ionicons name="close" size={20} color="#666" />
-                    </TouchableOpacity>
-                </View>
-            )}
+                    {/* Time Restriction Message */}
+                    {!canSendMessage && timeRestrictionMessage && (
+                        <View style={[styles.timeRestrictionBanner, { backgroundColor: 'rgba(255, 243, 205, 0.9)' }]}>
+                            <Ionicons name="time" size={16} color="#856404" />
+                            <Text style={[styles.timeRestrictionText, { color: '#856404' }]}>
+                                {timeRestrictionMessage}
+                            </Text>
+                        </View>
+                    )}
 
-            {/* Messages and Input with proper keyboard handling */}
-            <KeyboardAvoidingView
-                style={styles.chatBody}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={0}
-            >
-                <FlatList
-                    ref={flatListRef}
-                    data={messages}
-                    renderItem={renderMessage}
-                    keyExtractor={(item) => item.id}
-                    style={styles.modernMessagesList}
-                    contentContainerStyle={styles.modernMessagesContent}
-                    showsVerticalScrollIndicator={false}
-                    inverted={true}
-                />
+                    {/* Modern Input Container */}
+                    <View style={[
+                        styles.modernInputContainer,
+                        {
+                            backgroundColor: 'transparent',
+                            borderTopColor: 'transparent',
+                        }
+                    ]}>
+                        <View style={[styles.inputWrapper, {
+                            backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+                            borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+                        }]}>
+                            {/* Media Button */}
+                            <TouchableOpacity
+                                style={styles.mediaButton}
+                                onPress={() => setShowMediaPicker(true)}
+                                disabled={uploadingMedia || !canSendMessage}
+                            >
+                                <Ionicons
+                                    name="add-circle"
+                                    size={24}
+                                    color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                                />
+                                {uploadingMedia && (
+                                    <View style={styles.mediaButtonLoading}>
+                                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                                    </View>
+                                )}
+                            </TouchableOpacity>
 
-                {/* Typing Indicators */}
-                {typingUsers.size > 0 && (
-                    <View style={[styles.typingIndicator, { backgroundColor: 'transparent' }]}>
-                        <View style={styles.typingContent}>
-                            <View style={styles.typingAvatar}>
+                            {/* Voice Button */}
+                            <TouchableOpacity
+                                style={styles.voiceButton}
+                                onPress={() => setShowVoiceRecorder(true)}
+                                disabled={uploadingMedia || !canSendMessage}
+                            >
+                                <Ionicons
+                                    name="mic"
+                                    size={24}
+                                    color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                                />
+                                {uploadingMedia && (
+                                    <View style={styles.mediaButtonLoading}>
+                                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+
+                            <TextInput
+                                style={[
+                                    styles.modernTextInput,
+                                    {
+                                        color: theme.colors.inputText || '#333333',
+                                        backgroundColor: 'transparent',
+                                        opacity: canSendMessage ? 1 : 0.5,
+                                    }
+                                ]}
+                                value={newMessage}
+                                onChangeText={handleTextChange}
+                                placeholder={canSendMessage ? "Type a message..." : "Messaging restricted"}
+                                placeholderTextColor={theme.colors.inputPlaceholder || '#999999'}
+                                multiline
+                                maxLength={1000}
+                                textAlignVertical="top"
+                                editable={canSendMessage}
+                            />
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.modernSendButton,
+                                    { opacity: newMessage.trim() && canSendMessage ? 1 : 0.6 }
+                                ]}
+                                onPress={sendMessage}
+                                disabled={!newMessage.trim() || loading || uploadingMedia || !canSendMessage}
+                                activeOpacity={0.8}
+                            >
                                 <LinearGradient
-                                    colors={getAvatarGradient('Group') as [string, string]}
-                                    style={styles.typingAvatarGradient}
+                                    colors={newMessage.trim() ? ['#0d9488', '#10b981'] : ['#ccc', '#ccc']}
+                                    style={styles.sendButtonGradient}
                                     start={{ x: 0, y: 0 }}
                                     end={{ x: 1, y: 1 }}
                                 >
-                                    <Text style={styles.typingAvatarText}>
-                                        👥
-                                    </Text>
-                                </LinearGradient>
-                            </View>
-                            <View style={styles.typingBubble}>
-                                <Text style={[styles.typingText, { color: theme.colors.textSecondary }]}>
-                                    {typingUsers.size === 1 ? 'Someone is typing...' : `${typingUsers.size} people are typing...`}
-                                </Text>
-                                <View style={styles.typingDots}>
-                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                                </View>
-                            </View>
-                        </View>
-                    </View>
-                )}
-
-                {/* Uploading Media Indicator - Integrated in Input Container */}
-                {uploadingMedia && (
-                    <View style={[styles.uploadingIndicator, { backgroundColor: 'transparent' }]}>
-                        <View style={styles.uploadingContent}>
-                            <ActivityIndicator size="small" color={theme.colors.primary} />
-                            <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
-                                {uploadingMessage || 'Uploading...'}
-                            </Text>
-                            <View style={styles.uploadingProgressContainer}>
-                                <View style={[styles.uploadingProgressBar, { backgroundColor: theme.colors.border }]}>
-                                    <View
-                                        style={[
-                                            styles.uploadingProgressFill,
-                                            {
-                                                width: `${uploadProgress}%`,
-                                                backgroundColor: theme.colors.primary
-                                            }
-                                        ]}
+                                    <Ionicons
+                                        name={loading ? "hourglass" : "send"}
+                                        size={18}
+                                        color="#ffffff"
                                     />
-                                </View>
-                                <Text style={[styles.uploadingProgressText, { color: theme.colors.primary }]}>
-                                    {Math.round(uploadProgress)}%
-                                </Text>
-                            </View>
+                                </LinearGradient>
+                            </TouchableOpacity>
                         </View>
                     </View>
-                )}
+                </KeyboardAvoidingView>
 
-                {/* Time Restriction Message */}
-                {!canSendMessage && timeRestrictionMessage && (
-                    <View style={[styles.timeRestrictionBanner, { backgroundColor: 'rgba(255, 243, 205, 0.9)' }]}>
-                        <Ionicons name="time" size={16} color="#856404" />
-                        <Text style={[styles.timeRestrictionText, { color: '#856404' }]}>
-                            {timeRestrictionMessage}
-                        </Text>
+                {/* Media Picker Modal */}
+                <MediaPicker
+                    isVisible={showMediaPicker}
+                    onClose={() => setShowMediaPicker(false)}
+                    onMediaSelected={(mediaFiles) => {
+                        // Determine type from the first media file
+                        const firstFile = mediaFiles[0];
+                        let mediaType: 'image' | 'video' | 'document' = 'document';
+
+                        if (firstFile.type.startsWith('image/')) {
+                            mediaType = 'image';
+                        } else if (firstFile.type.startsWith('video/')) {
+                            mediaType = 'video';
+                        }
+
+                        sendMediaMessage(mediaFiles, mediaType);
+                    }}
+                    onVoiceRecorded={sendVoiceMessage}
+                    isUploading={uploadingMedia}
+                />
+
+                {/* Voice Recorder Modal */}
+                <Modal
+                    visible={showVoiceRecorder}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowVoiceRecorder(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Record Voice Note</Text>
+
+                            <View style={styles.voiceRecorderContainer}>
+                                {!isRecording ? (
+                                    <TouchableOpacity
+                                        style={styles.recordButton}
+                                        onPress={startRecording}
+                                        disabled={uploadingMedia}
+                                    >
+                                        <Ionicons name="mic" size={48} color="#667eea" />
+                                        <Text style={styles.recordButtonText}>Tap to Record</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <View style={styles.recordingContainer}>
+                                        <View style={styles.recordingIndicator}>
+                                            <View style={styles.recordingDot} />
+                                            <Text style={styles.recordingText}>
+                                                Recording... {formatDuration(recordingDuration)}
+                                            </Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.stopButton}
+                                            onPress={stopRecording}
+                                        >
+                                            <Ionicons name="stop-circle" size={48} color="#ff4444" />
+                                            <Text style={styles.stopButtonText}>Stop Recording</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+
+                            <TouchableOpacity
+                                style={styles.cancelButton}
+                                onPress={() => setShowVoiceRecorder(false)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                )}
+                </Modal>
 
-                {/* Modern Input Container */}
-                <View style={[
-                    styles.modernInputContainer,
-                    {
-                        backgroundColor: 'transparent',
-                        borderTopColor: 'transparent',
-                    }
-                ]}>
-                    <View style={[styles.inputWrapper, {
-                        backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
-                        borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
-                    }]}>
-                        {/* Media Button */}
+                {/* Full Screen Media Modal */}
+                <Modal
+                    visible={showFullScreenMedia}
+                    animationType="fade"
+                    transparent={true}
+                    onRequestClose={() => setShowFullScreenMedia(false)}
+                >
+                    <View style={styles.fullScreenOverlay}>
                         <TouchableOpacity
-                            style={styles.mediaButton}
-                            onPress={() => setShowMediaPicker(true)}
-                            disabled={uploadingMedia || !canSendMessage}
+                            style={styles.fullScreenCloseButton}
+                            onPress={() => setShowFullScreenMedia(false)}
                         >
-                            <Ionicons
-                                name="add-circle"
-                                size={24}
-                                color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
-                            />
-                            {uploadingMedia && (
-                                <View style={styles.mediaButtonLoading}>
-                                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                                </View>
-                            )}
+                            <Ionicons name="close" size={30} color="#ffffff" />
                         </TouchableOpacity>
 
-                        {/* Voice Button */}
-                        <TouchableOpacity
-                            style={styles.voiceButton}
-                            onPress={() => setShowVoiceRecorder(true)}
-                            disabled={uploadingMedia || !canSendMessage}
-                        >
-                            <Ionicons
-                                name="mic"
-                                size={24}
-                                color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                        {fullScreenMedia && (
+                            <Image
+                                source={{ uri: fullScreenMedia.uri }}
+                                style={styles.fullScreenImage}
+                                resizeMode="contain"
                             />
-                            {uploadingMedia && (
-                                <View style={styles.mediaButtonLoading}>
-                                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                                </View>
-                            )}
-                        </TouchableOpacity>
+                        )}
+                    </View>
+                </Modal>
 
-                        <TextInput
+                {/* Video Player Modal */}
+                <Modal
+                    visible={showVideoPlayer}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setShowVideoPlayer(false)}
+                >
+                    <View style={styles.fullScreenModal}>
+                        {selectedMedia && (
+                            <VideoPlayer
+                                uri={selectedMedia.mediaUrl!}
+                                onClose={() => setShowVideoPlayer(false)}
+                                isFullScreen={true}
+                            />
+                        )}
+                    </View>
+                </Modal>
+
+                {/* Document Viewer Modal */}
+                <Modal
+                    visible={showDocumentViewer}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowDocumentViewer(false)}
+                >
+                    <View style={styles.documentModal}>
+                        {selectedMedia && (
+                            <DocumentViewer
+                                mediaUrl={selectedMedia.mediaUrl!}
+                                fileName={selectedMedia.mediaName || 'Document'}
+                                mediaType={selectedMedia.messageType === 'document' ? 'application/octet-stream' : 'image/jpeg'}
+                                mediaSize={selectedMedia.mediaSize}
+                                onClose={() => setShowDocumentViewer(false)}
+                            />
+                        )}
+                    </View>
+                </Modal>
+
+                {/* PDF Viewer Modal */}
+                <Modal
+                    visible={showPDFViewer}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowPDFViewer(false)}
+                >
+                    <View style={styles.documentModal}>
+                        {selectedMedia && (
+                            <PDFViewer
+                                mediaUrl={selectedMedia.mediaUrl!}
+                                fileName={selectedMedia.mediaName || 'Document.pdf'}
+                                mediaSize={selectedMedia.mediaSize}
+                                onClose={() => setShowPDFViewer(false)}
+                            />
+                        )}
+                    </View>
+                </Modal>
+
+
+
+                {/* Custom Alert */}
+                <Modal
+                    visible={customAlert.visible}
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={hideCustomAlert}
+                >
+                    <View style={styles.alertOverlay}>
+                        <View style={[
+                            styles.alertContainer,
+                            { backgroundColor: theme.colors.surface }
+                        ]}>
+                            <Text style={[
+                                styles.alertTitle,
+                                { color: theme.colors.text }
+                            ]}>
+                                {customAlert.title}
+                            </Text>
+                            <Text style={[
+                                styles.alertMessage,
+                                { color: theme.colors.textSecondary }
+                            ]}>
+                                {customAlert.message}
+                            </Text>
+                        </View>
+                    </View>
+                </Modal>
+
+                {/* Action Sheet Modal */}
+                <Modal
+                    visible={showActionSheet}
+                    transparent
+                    animationType="none"
+                    onRequestClose={animatePopupOut}
+                    statusBarTranslucent
+                    hardwareAccelerated
+                >
+                    <View style={styles.actionPopupOverlay} pointerEvents="box-none">
+                        <Animated.View
                             style={[
-                                styles.modernTextInput,
+                                styles.actionPopupBackdrop,
                                 {
-                                    color: theme.colors.inputText || '#333333',
-                                    backgroundColor: 'transparent',
-                                    opacity: canSendMessage ? 1 : 0.5,
+                                    opacity: popupAnimation,
+                                },
+                            ]}
+                            pointerEvents="none"
+                        />
+                        <TouchableOpacity
+                            style={styles.actionPopupBackdrop}
+                            onPress={animatePopupOut}
+                            activeOpacity={1}
+                        />
+                        <Animated.View
+                            style={[
+                                styles.actionPopupContainer,
+                                {
+                                    backgroundColor: theme.colors.surface,
+                                    opacity: popupAnimation,
+                                    transform: [{ scale: popupScale }],
                                 }
                             ]}
-                            value={newMessage}
-                            onChangeText={handleTextChange}
-                            placeholder={canSendMessage ? "Type a message..." : "Messaging restricted"}
-                            placeholderTextColor={theme.colors.inputPlaceholder || '#999999'}
-                            multiline
-                            maxLength={1000}
-                            textAlignVertical="top"
-                            editable={canSendMessage}
-                        />
-
-                        <TouchableOpacity
-                            style={[
-                                styles.modernSendButton,
-                                { opacity: newMessage.trim() && canSendMessage ? 1 : 0.6 }
-                            ]}
-                            onPress={sendMessage}
-                            disabled={!newMessage.trim() || loading || uploadingMedia || !canSendMessage}
-                            activeOpacity={0.8}
+                            pointerEvents="box-none"
                         >
-                            <LinearGradient
-                                colors={newMessage.trim() ? ['#0d9488', '#10b981'] : ['#ccc', '#ccc']}
-                                style={styles.sendButtonGradient}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                            >
-                                <Ionicons
-                                    name={loading ? "hourglass" : "send"}
-                                    size={18}
-                                    color="#ffffff"
-                                />
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </KeyboardAvoidingView>
-
-            {/* Media Picker Modal */}
-            <MediaPicker
-                isVisible={showMediaPicker}
-                onClose={() => setShowMediaPicker(false)}
-                onMediaSelected={(mediaFiles) => {
-                    // Determine type from the first media file
-                    const firstFile = mediaFiles[0];
-                    let mediaType: 'image' | 'video' | 'document' = 'document';
-                    
-                    if (firstFile.type.startsWith('image/')) {
-                        mediaType = 'image';
-                    } else if (firstFile.type.startsWith('video/')) {
-                        mediaType = 'video';
-                    }
-                    
-                    sendMediaMessage(mediaFiles, mediaType);
-                }}
-                onVoiceRecorded={sendVoiceMessage}
-                isUploading={uploadingMedia}
-            />
-
-            {/* Voice Recorder Modal */}
-            <Modal
-                visible={showVoiceRecorder}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowVoiceRecorder(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Record Voice Note</Text>
-
-                        <View style={styles.voiceRecorderContainer}>
-                            {!isRecording ? (
-                                <TouchableOpacity
-                                    style={styles.recordButton}
-                                    onPress={startRecording}
-                                    disabled={uploadingMedia}
-                                >
-                                    <Ionicons name="mic" size={48} color="#667eea" />
-                                    <Text style={styles.recordButtonText}>Tap to Record</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <View style={styles.recordingContainer}>
-                                    <View style={styles.recordingIndicator}>
-                                        <View style={styles.recordingDot} />
-                                        <Text style={styles.recordingText}>
-                                            Recording... {formatDuration(recordingDuration)}
-                                        </Text>
+                            {selectedMessageForActions && (
+                                <>
+                                    {/* Selected Message Display */}
+                                    <View style={styles.selectedMessageContainer}>
+                                        <View style={[
+                                            styles.selectedMessageBubble,
+                                            {
+                                                backgroundColor: selectedMessageForActions.senderId === userData?.uid
+                                                    ? theme.colors.primary
+                                                    : theme.colors.border
+                                            }
+                                        ]}>
+                                            <Text style={[
+                                                styles.selectedMessageText,
+                                                {
+                                                    color: selectedMessageForActions.senderId === userData?.uid
+                                                        ? '#FFFFFF'
+                                                        : theme.colors.text
+                                                }
+                                            ]}>
+                                                {selectedMessageForActions.text || 'Media message'}
+                                            </Text>
+                                            <Text style={[
+                                                styles.selectedMessageTime,
+                                                {
+                                                    color: selectedMessageForActions.senderId === userData?.uid
+                                                        ? 'rgba(255, 255, 255, 0.7)'
+                                                        : theme.colors.textSecondary
+                                                }
+                                            ]}>
+                                                {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
+                                                    hour: '2-digit',
+                                                    minute: '2-digit',
+                                                }) : ''}
+                                            </Text>
+                                        </View>
                                     </View>
-                                    <TouchableOpacity
-                                        style={styles.stopButton}
-                                        onPress={stopRecording}
-                                    >
-                                        <Ionicons name="stop-circle" size={48} color="#ff4444" />
-                                        <Text style={styles.stopButtonText}>Stop Recording</Text>
-                                    </TouchableOpacity>
-                                </View>
+
+                                    {/* Action Buttons */}
+                                    <View style={styles.actionPopupActions}>
+                                        <TouchableOpacity
+                                            style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                                            onPress={() => {
+                                                replyToMessage(selectedMessageForActions);
+                                                animatePopupOut();
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.actionPopupButtonContent}>
+                                                <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Reply</Text>
+                                            </View>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                                                <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.primary} />
+                                            </View>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                                            onPress={() => {
+                                                copyMessage(selectedMessageForActions);
+                                                animatePopupOut();
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.actionPopupButtonContent}>
+                                                <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Copy</Text>
+                                            </View>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(103, 126, 234, 0.1)' }]}>
+                                                <Ionicons name="copy-outline" size={18} color={theme.colors.primary} />
+                                            </View>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                                            onPress={() => {
+                                                starMessage(selectedMessageForActions);
+                                                animatePopupOut();
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.actionPopupButtonContent}>
+                                                <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                                                    {selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? 'Unstar' : 'Star'}
+                                                </Text>
+                                            </View>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
+                                                <Ionicons
+                                                    name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"}
+                                                    size={18}
+                                                    color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary}
+                                                />
+                                            </View>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                                            onPress={() => {
+                                                if (pinnedMessage?.id === selectedMessageForActions.id) {
+                                                    unpinMessage();
+                                                } else {
+                                                    pinMessage(selectedMessageForActions);
+                                                }
+                                                animatePopupOut();
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.actionPopupButtonContent}>
+                                                <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                                                    {pinnedMessage?.id === selectedMessageForActions.id ? 'Unpin' : 'Pin'}
+                                                </Text>
+                                            </View>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                                                <Ionicons
+                                                    name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"}
+                                                    size={18}
+                                                    color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary}
+                                                />
+                                            </View>
+                                        </TouchableOpacity>
+
+                                        {/* Delete Option - Available for all messages */}
+                                        <TouchableOpacity
+                                            style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                                            onPress={() => {
+                                                deleteMessage(selectedMessageForActions);
+                                                animatePopupOut();
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={styles.actionPopupButtonContent}>
+                                                <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
+                                                    Delete
+                                                </Text>
+                                            </View>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                                                <Ionicons
+                                                    name="trash-outline"
+                                                    size={18}
+                                                    color="#F44336"
+                                                />
+                                            </View>
+                                        </TouchableOpacity>
+                                    </View>
+                                </>
                             )}
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.cancelButton}
-                            onPress={() => setShowVoiceRecorder(false)}
-                        >
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
+                        </Animated.View>
                     </View>
-                </View>
-            </Modal>
-
-            {/* Full Screen Media Modal */}
-            <Modal
-                visible={showFullScreenMedia}
-                animationType="fade"
-                transparent={true}
-                onRequestClose={() => setShowFullScreenMedia(false)}
-            >
-                <View style={styles.fullScreenOverlay}>
-                    <TouchableOpacity
-                        style={styles.fullScreenCloseButton}
-                        onPress={() => setShowFullScreenMedia(false)}
-                    >
-                        <Ionicons name="close" size={30} color="#ffffff" />
-                    </TouchableOpacity>
-
-                    {fullScreenMedia && (
-                        <Image
-                            source={{ uri: fullScreenMedia.uri }}
-                            style={styles.fullScreenImage}
-                            resizeMode="contain"
-                        />
-                    )}
-                </View>
-            </Modal>
-
-            {/* Video Player Modal */}
-            <Modal
-                visible={showVideoPlayer}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowVideoPlayer(false)}
-            >
-                <View style={styles.fullScreenModal}>
-                    {selectedMedia && (
-                        <VideoPlayer
-                            uri={selectedMedia.mediaUrl!}
-                            onClose={() => setShowVideoPlayer(false)}
-                            isFullScreen={true}
-                        />
-                    )}
-                </View>
-            </Modal>
-
-            {/* Document Viewer Modal */}
-            <Modal
-                visible={showDocumentViewer}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowDocumentViewer(false)}
-            >
-                <View style={styles.documentModal}>
-                    {selectedMedia && (
-                        <DocumentViewer
-                            mediaUrl={selectedMedia.mediaUrl!}
-                            fileName={selectedMedia.mediaName || 'Document'}
-                            mediaType={selectedMedia.messageType === 'document' ? 'application/octet-stream' : 'image/jpeg'}
-                            mediaSize={selectedMedia.mediaSize}
-                            onClose={() => setShowDocumentViewer(false)}
-                        />
-                    )}
-                </View>
-            </Modal>
-
-            {/* PDF Viewer Modal */}
-            <Modal
-                visible={showPDFViewer}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowPDFViewer(false)}
-            >
-                <View style={styles.documentModal}>
-                    {selectedMedia && (
-                        <PDFViewer
-                            mediaUrl={selectedMedia.mediaUrl!}
-                            fileName={selectedMedia.mediaName || 'Document.pdf'}
-                            mediaSize={selectedMedia.mediaSize}
-                            onClose={() => setShowPDFViewer(false)}
-                        />
-                    )}
-                </View>
-            </Modal>
-
-
-
-            {/* Custom Alert */}
-            <Modal
-                visible={customAlert.visible}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={hideCustomAlert}
-            >
-                <View style={styles.alertOverlay}>
-                    <View style={[
-                        styles.alertContainer,
-                        { backgroundColor: theme.colors.surface }
-                    ]}>
-                        <Text style={[
-                            styles.alertTitle,
-                            { color: theme.colors.text }
-                        ]}>
-                            {customAlert.title}
-                        </Text>
-                        <Text style={[
-                            styles.alertMessage,
-                            { color: theme.colors.textSecondary }
-                        ]}>
-                            {customAlert.message}
-                        </Text>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Action Sheet Modal */}
-            <Modal
-                visible={showActionSheet}
-                transparent
-                animationType="none"
-                onRequestClose={animatePopupOut}
-                statusBarTranslucent
-                hardwareAccelerated
-            >
-                <View style={styles.actionPopupOverlay} pointerEvents="box-none">
-                    <Animated.View
-                        style={[
-                            styles.actionPopupBackdrop,
-                            {
-                                opacity: popupAnimation,
-                            },
-                        ]}
-                        pointerEvents="none"
-                    />
-                    <TouchableOpacity
-                        style={styles.actionPopupBackdrop}
-                        onPress={animatePopupOut}
-                        activeOpacity={1}
-                    />
-                    <Animated.View
-                        style={[
-                            styles.actionPopupContainer,
-                            {
-                                backgroundColor: theme.colors.surface,
-                                opacity: popupAnimation,
-                                transform: [{ scale: popupScale }],
-                            }
-                        ]}
-                        pointerEvents="box-none"
-                    >
-                        {selectedMessageForActions && (
-                            <>
-                                {/* Selected Message Display */}
-                                <View style={styles.selectedMessageContainer}>
-                                    <View style={[
-                                        styles.selectedMessageBubble,
-                                        {
-                                            backgroundColor: selectedMessageForActions.senderId === userData?.uid
-                                                ? theme.colors.primary
-                                                : theme.colors.border
-                                        }
-                                    ]}>
-                                        <Text style={[
-                                            styles.selectedMessageText,
-                                            {
-                                                color: selectedMessageForActions.senderId === userData?.uid
-                                                    ? '#FFFFFF'
-                                                    : theme.colors.text
-                                            }
-                                        ]}>
-                                            {selectedMessageForActions.text || 'Media message'}
-                                        </Text>
-                                        <Text style={[
-                                            styles.selectedMessageTime,
-                                            {
-                                                color: selectedMessageForActions.senderId === userData?.uid
-                                                    ? 'rgba(255, 255, 255, 0.7)'
-                                                    : theme.colors.textSecondary
-                                            }
-                                        ]}>
-                                            {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            }) : ''}
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                {/* Action Buttons */}
-                                <View style={styles.actionPopupActions}>
-                                    <TouchableOpacity
-                                        style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                                        onPress={() => {
-                                            replyToMessage(selectedMessageForActions);
-                                            animatePopupOut();
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={styles.actionPopupButtonContent}>
-                                            <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Reply</Text>
-                                        </View>
-                                        <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
-                                            <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.primary} />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                                        onPress={() => {
-                                            copyMessage(selectedMessageForActions);
-                                            animatePopupOut();
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={styles.actionPopupButtonContent}>
-                                            <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Copy</Text>
-                                        </View>
-                                        <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(103, 126, 234, 0.1)' }]}>
-                                            <Ionicons name="copy-outline" size={18} color={theme.colors.primary} />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                                        onPress={() => {
-                                            starMessage(selectedMessageForActions);
-                                            animatePopupOut();
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={styles.actionPopupButtonContent}>
-                                            <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
-                                                {selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? 'Unstar' : 'Star'}
-                                            </Text>
-                                        </View>
-                                        <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
-                                            <Ionicons
-                                                name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"}
-                                                size={18}
-                                                color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary}
-                                            />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                                        onPress={() => {
-                                            if (pinnedMessage?.id === selectedMessageForActions.id) {
-                                                unpinMessage();
-                                            } else {
-                                                pinMessage(selectedMessageForActions);
-                                            }
-                                            animatePopupOut();
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={styles.actionPopupButtonContent}>
-                                            <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
-                                                {pinnedMessage?.id === selectedMessageForActions.id ? 'Unpin' : 'Pin'}
-                                            </Text>
-                                        </View>
-                                        <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                                            <Ionicons
-                                                name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"}
-                                                size={18}
-                                                color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary}
-                                            />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    {/* Delete Option - Available for all messages */}
-                                    <TouchableOpacity
-                                        style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                                        onPress={() => {
-                                            deleteMessage(selectedMessageForActions);
-                                            animatePopupOut();
-                                        }}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View style={styles.actionPopupButtonContent}>
-                                            <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
-                                                Delete
-                                            </Text>
-                                        </View>
-                                        <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                                            <Ionicons
-                                                name="trash-outline"
-                                                size={18}
-                                                color="#F44336"
-                                            />
-                                        </View>
-                                    </TouchableOpacity>
-                                </View>
-                            </>
-                        )}
-                    </Animated.View>
-                </View>
-            </Modal>
+                </Modal>
             </SafeAreaView>
         </ImageBackground>
     );
@@ -1991,11 +1993,12 @@ const styles = StyleSheet.create({
     },
     modernMessageBubble: {
         maxWidth: '78%',
-        minWidth: 120,
+        minWidth: 90,
         paddingHorizontal: 3,
         paddingVertical: 3,
         borderRadius: 12,
         position: 'relative',
+        overflow: 'hidden',
     },
     ownMessageBubble: {
         borderBottomRightRadius: 8,
@@ -2009,7 +2012,7 @@ const styles = StyleSheet.create({
     },
     otherMessageBubble: {
         borderBottomLeftRadius: 8,
-        marginRight:'auto',
+        marginRight: 'auto',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.04,
@@ -2022,7 +2025,7 @@ const styles = StyleSheet.create({
         lineHeight: 24,
         fontWeight: '400',
         letterSpacing: 0.2,
-        padding:8
+        padding: 8
     },
     messageFooter: {
         flexDirection: 'row',

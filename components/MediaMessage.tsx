@@ -22,9 +22,10 @@ interface MediaMessageProps {
   isOwnMessage: boolean;
   onMediaPress?: () => void;
   onDocumentPress?: () => void;
+  onLongPress?: () => void;
 }
 
-export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDocumentPress }: MediaMessageProps) {
+export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDocumentPress, onLongPress }: MediaMessageProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -203,13 +204,18 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
 
   const renderImageMessage = () => (
     <View style={styles.imageContainer}>
-      <TouchableOpacity onPress={handleImagePress} style={styles.imageTouchable}>
+      <TouchableOpacity onPress={handleImagePress} onLongPress={onLongPress} style={styles.imageTouchable}>
         <Image
           source={{ uri: message.mediaUrl }}
           style={styles.image}
           contentFit="cover"
           transition={200}
         />
+        <View style={{position:'absolute',bottom:8,right:4,flexDirection:'row',alignItems:'center',gap:4 ,backgroundColor:'rgba(0, 0, 0, 0.37)',paddingHorizontal:4,paddingVertical:2,borderRadius:4, height:20,width:60}}/>
+        <Text style={{position:'absolute',bottom:10,right:10,fontSize:12,color:'#ffffff'}}>{message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString([], {
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }) : ''}</Text>
       </TouchableOpacity>
       
              {/* Download Button for Images */}
@@ -249,7 +255,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
 
   const renderVideoMessage = () => (
     <View style={styles.videoContainer}>
-      <TouchableOpacity onPress={handleVideoPress} style={styles.videoTouchable}>
+      <TouchableOpacity onPress={handleVideoPress} onLongPress={onLongPress} style={styles.videoTouchable}>
         <View style={[styles.videoThumbnail, { backgroundColor: theme.colors.border }]}>
           <Ionicons name="play-circle" size={40} color={theme.isDark ? theme.colors.primary : '#10b981'} style={{position:'absolute',right:'50%'}}/>
           {message.mediaDuration && (
@@ -258,6 +264,11 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
             </Text>
           )}
         </View>
+        <View style={{position:'absolute',bottom:8,right:4,flexDirection:'row',alignItems:'center',gap:4 ,backgroundColor:'rgba(0, 0, 0, 0.37)',paddingHorizontal:4,paddingVertical:2,borderRadius:4, height:20,width:60}}/>
+        <Text style={{position:'absolute',bottom:10,right:10,fontSize:12,color:'#ffffff'}}>{message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString([], {
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }) : ''}</Text>
       </TouchableOpacity>
       
         {/* Download Button for Videos */}
@@ -297,7 +308,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
 
   const renderDocumentMessage = () => (
     <View style={styles.documentContainer}>
-      <TouchableOpacity onPress={handleDocumentPress} style={styles.documentTouchable}>
+      <TouchableOpacity onPress={handleDocumentPress} onLongPress={onLongPress} style={styles.documentTouchable}>
         <View style={[styles.documentIcon, { backgroundColor: theme.colors.primary }]}>
           {isDownloading ? (
             <ActivityIndicator size="small" color="#ffffff" />
@@ -357,7 +368,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
 
   const renderVoiceMessage = () => (
     <View style={styles.voiceContainer}>
-      <TouchableOpacity onPress={handleVoicePlay} style={styles.voicePlayButton}>
+      <TouchableOpacity onPress={handleVoicePlay} onLongPress={onLongPress} style={styles.voicePlayButton}>
         <Ionicons 
           name={isPlaying ? "pause" : "play"} 
           size={18} 
@@ -377,10 +388,16 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
             ]} 
           />
         </View>
+        
         <Text style={[styles.voiceDuration, { color: isOwnMessage ? '#ffffff' : theme.colors.text }]}>
           {formatDuration(message.mediaDuration || 0)}
         </Text>
       </View>
+      <View style={{position:'absolute',bottom:8,right:4,flexDirection:'row',alignItems:'center',gap:4 ,paddingHorizontal:4,paddingVertical:2,borderRadius:4, zIndex: 100000,height:20,width:60}}/>
+        <Text style={{position:'absolute',bottom:0,right:4,fontSize:12,color:isOwnMessage ? '#ffffff' : '#424242'}}>{message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString([], {
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }) : ''}</Text>
     </View>
   );
 

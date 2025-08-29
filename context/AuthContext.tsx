@@ -1,6 +1,7 @@
 // context/AuthContext.tsx
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { firebaseAuth, firebaseFirestore } from '../firebaseConfig';
 
 interface UserData {
@@ -40,6 +41,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Update online status in Firestore
+  const updateOnlineStatus =useCallback (async (isOnline: boolean) => {
+    if (user?.uid) {
+      try {
+        await firebaseFirestore.collection('users').doc(user.uid).update({
+          isOnline,
+          lastSeen: isOnline ? null : new Date()
+        });
+        
+        // Update local state
+        setUserData(prev => prev ? { ...prev, isOnline, lastSeen: isOnline ? null : new Date() } : null);
+      } catch (error) {
+        console.error('Error updating online status:', error);
+      }
+    }
+  },[user?.uid]);
+
+  // Handle app state changes
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active' && user?.uid) {
+        // App became active - set user online
+        updateOnlineStatus(true);
+      } else if (nextAppState === 'background' && user?.uid) {
+        // App went to background - set user offline
+        updateOnlineStatus(false);
+      }
+    };
+
+    // Use the appropriate method based on React Native version
+    let subscription: any;
+    if (AppState.addEventListener) {
+      subscription = AppState.addEventListener('change', handleAppStateChange);
+    } else {
+      // Fallback for older versions
+      AppState.addEventListener('change', handleAppStateChange);
+    }
+    
+    return () => {
+      if (subscription?.remove) {
+        subscription.remove();
+      }
+    };
+  }, [user?.uid,updateOnlineStatus]);
+
   useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
       setUser(user);
@@ -52,16 +98,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const data = userDoc.data() as UserData;
             setUserData(data);
             
-            // Update online status
+            // Set user online when they log in
             await firebaseFirestore.collection('users').doc(user.uid).update({
               isOnline: true,
-              lastSeen: new Date()
+              lastSeen: null
             });
+            
+            // Update local state
+            setUserData(prev => prev ? { ...prev, isOnline: true, lastSeen: null } : null);
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
         }
       } else {
+        // User logged out - ensure they're marked as offline
+        if (userData?.uid) {
+          try {
+            await firebaseFirestore.collection('users').doc(userData.uid).update({
+              isOnline: false,
+              lastSeen: new Date()
+            });
+          } catch (error) {
+            console.error('Error updating offline status:', error);
+          }
+        }
         setUserData(null);
       }
       
@@ -69,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return unsubscribe;
-  }, []);
+  }, [userData?.uid]);
 
   const signOut = async () => {
     try {
@@ -91,16 +151,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         await firebaseFirestore.collection('users').doc(user.uid).update({
           isOnline,
-          lastSeen: new Date()
+          lastSeen: isOnline ? null : new Date()
         });
         
         // Update local state
-        setUserData(prev => prev ? { ...prev, isOnline, lastSeen: new Date() } : null);
+        setUserData(prev => prev ? { ...prev, isOnline, lastSeen: isOnline ? null : new Date() } : null);
       }
     } catch (error) {
       console.error('Error updating user status:', error);
     }
   };
+
+  // Cleanup effect when component unmounts
+  useEffect(() => {
+    return () => {
+      // When the app is completely closed, ensure user is marked as offline
+      if (user?.uid) {
+        firebaseFirestore.collection('users').doc(user.uid).update({
+          isOnline: false,
+          lastSeen: new Date()
+        }).catch(error => {
+          console.error('Error updating offline status on unmount:', error);
+        });
+      }
+    };
+  }, [user?.uid]);
 
   const value: AuthContextType = {
     user,

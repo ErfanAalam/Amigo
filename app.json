@@ -11,11 +11,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.amigo.app",
+      "buildNumber": "1.0.0",
       "infoPlist": {
         "NSContactsUsageDescription": "This app needs access to your contacts to find friends who are using Awaaz.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice notes.",
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to save and share media files.",
-        "NSPhotoLibraryAddUsageDescription": "This app needs access to save media files to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "This app needs access to save media files to your photo library.",
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos and videos.",
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show your current location to other users and for location-based features.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to show your current location to other users and for location-based features.",
+        "NSUserNotificationsUsageDescription": "This app needs to send you notifications for new messages and calls."
       }
     },
     "android": {
@@ -31,7 +36,12 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.MANAGE_EXTERNAL_STORAGE"
+        "android.permission.MANAGE_EXTERNAL_STORAGE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -56,13 +66,44 @@
           "microphonePermission": "Allow Amigo to access your microphone to record voice notes."
         }
       ],
-      "@react-native-firebase/app"
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Amigo to access your contacts to find friends."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Amigo to access your photos to share media."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Amigo to access your media library.",
+          "savePhotosPermission": "Allow Amigo to save photos to your library."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Amigo to access your location to show your current location to other users and for location-based features.",
+          "locationWhenInUsePermission": "Allow Amigo to access your location to show your current location to other users and for location-based features."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "developmentClient": {
       "silenceLaunchWarnings": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8ac4cc29-cb3b-4354-ac4c-48b73a7381d9"
+      }
     }
   }
 }

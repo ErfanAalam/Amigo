@@ -22,6 +22,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+// import CallButton from '../components/CallButton';
 import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
 import MediaPicker from '../components/MediaPicker';
@@ -33,6 +34,7 @@ import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseStorage, firebaseFirestore as firestore } from '../firebaseConfig';
 import { MediaFile, Message, ReplyReference, VoiceNote } from '../types/MessageTypes';
 import { MediaDownloader } from '../utils/MediaDownloader';
+import { sendMessageNotification } from '../utils/sendNotification';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -44,7 +46,7 @@ export default function ChatPage() {
   const { userData } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,7 +57,7 @@ export default function ChatPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingMessage, setUploadingMessage] = useState<string>('');
   const [showFullScreenMedia, setShowFullScreenMedia] = useState(false);
-  const [fullScreenMedia, setFullScreenMedia] = useState<{uri: string, type: string, name?: string} | null>(null);
+  const [fullScreenMedia, setFullScreenMedia] = useState<{ uri: string, type: string, name?: string } | null>(null);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [showPDFViewer, setShowPDFViewer] = useState(false);
@@ -78,12 +80,12 @@ export default function ChatPage() {
     message: '',
     type: 'info',
   });
-  
+
   // Typing indicator state
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
-  
+
   const flatListRef = useRef<FlatList>(null);
 
   // Auto-scroll when new messages arrive
@@ -100,7 +102,7 @@ export default function ChatPage() {
   // Fetch receiver's profile image
   const fetchReceiverProfileImage = useCallback(async () => {
     if (!userId) return;
-    
+
     try {
       const userDoc = await firestore.collection('users').doc(userId).get();
       if (userDoc.exists) {
@@ -115,7 +117,7 @@ export default function ChatPage() {
   // Fetch pinned message
   const fetchPinnedMessage = useCallback(async () => {
     if (!chatId) return;
-    
+
     try {
       const pinnedQuery = await firestore
         .collection('chats')
@@ -124,7 +126,7 @@ export default function ChatPage() {
         .where('isPinned', '==', true)
         .limit(1)
         .get();
-      
+
       if (!pinnedQuery.empty) {
         const pinnedDoc = pinnedQuery.docs[0];
         setPinnedMessage({
@@ -142,13 +144,13 @@ export default function ChatPage() {
   // Fetch contacts for forwarding
   const fetchContacts = useCallback(async () => {
     if (!userData?.uid) return;
-    
+
     try {
       const chatsSnapshot = await firestore
         .collection('chats')
         .where('participants', 'array-contains', userData.uid)
         .get();
-      
+
       const contactsList: any[] = [];
       chatsSnapshot.forEach((doc) => {
         const chatData = doc.data();
@@ -161,7 +163,7 @@ export default function ChatPage() {
           });
         }
       });
-      
+
       setContacts(contactsList);
     } catch (error) {
       console.error('Error fetching contacts:', error);
@@ -203,16 +205,16 @@ export default function ChatPage() {
     useCallback(() => {
       // Initialize MediaDownloader
       MediaDownloader.loadDownloadStates();
-      
+
       // Fetch receiver's profile image
       fetchReceiverProfileImage();
-      
+
       // Fetch pinned message
       fetchPinnedMessage();
-      
+
       // Fetch contacts for forwarding
       fetchContacts();
-      
+
       if (chatId && userData?.uid) {
         markMessagesAsRead();
       }
@@ -286,7 +288,7 @@ export default function ChatPage() {
   // Handle text input changes for typing indicator
   const handleTextChange = (text: string) => {
     setNewMessage(text);
-    
+
     // Clear existing timeout
     if (typingTimeout) {
       clearTimeout(typingTimeout);
@@ -349,7 +351,7 @@ export default function ChatPage() {
         const messageList: Message[] = [];
         snapshot.forEach((doc) => {
           const messageData = doc.data() as Message;
-          
+
           // Filter out messages that the current user has deleted
           if (!messageData.deletedFor || !messageData.deletedFor.includes(userData.uid)) {
             messageList.push({
@@ -368,15 +370,15 @@ export default function ChatPage() {
     try {
       const fileName = `media/${chatId}/${Date.now()}_${mediaFile.name}`;
       const reference = firebaseStorage.ref().child(fileName);
-      
+
       const response = await fetch(mediaFile.uri);
       const blob = await response.blob();
-      
+
       // Show upload progress
       const uploadTask = reference.put(blob);
-      
+
       return new Promise((resolve, reject) => {
-        uploadTask.on('state_changed', 
+        uploadTask.on('state_changed',
           (snapshot) => {
             // Track upload progress
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
@@ -409,19 +411,19 @@ export default function ChatPage() {
     setUploadingMedia(true);
     setUploadProgress(0);
     setUploadingMessage(`Uploading ${mediaFiles.length} item${mediaFiles.length > 1 ? 's' : ''}...`);
-    
+
     try {
       // Upload all media files
       const uploadPromises = mediaFiles.map(async (mediaFile) => {
         const mediaUrl = await uploadMediaToStorage(mediaFile);
-        
+
         // Debug logging
         // console.log('MediaFile details:', {
         //   name: mediaFile.name,
         //   type: mediaFile.type,
         //   size: mediaFile.size
         // });
-        
+
         // Determine message type
         let messageType: Message['messageType'] = 'document';
         if (mediaFile.type.startsWith('image/')) {
@@ -456,9 +458,9 @@ export default function ChatPage() {
         const cleanMediaData = Object.fromEntries(
           Object.entries(mediaData).filter(([_, value]) => value !== undefined)
         );
-        
+
         // console.log('Clean media data for Firebase:', cleanMediaData);
-        
+
         return firestore
           .collection('chats')
           .doc(chatId)
@@ -477,14 +479,14 @@ export default function ChatPage() {
 
       // Update chat metadata with the last media message
       const lastMedia = uploadedMedia[uploadedMedia.length - 1];
-      let mediaText = lastMedia.messageType === 'image' ? '📷 Image' : 
-                       lastMedia.messageType === 'video' ? '🎥 Video' : 
-                       lastMedia.messageType === 'audio' ? '🎵 Audio' : '📄 Document';
-      
+      let mediaText = lastMedia.messageType === 'image' ? '📷 Image' :
+        lastMedia.messageType === 'video' ? '🎥 Video' :
+          lastMedia.messageType === 'audio' ? '🎵 Audio' : '📄 Document';
+
       if (uploadedMedia.length > 1) {
         mediaText = `📎 ${uploadedMedia.length} files`;
       }
-      
+
       await firestore
         .collection('chats')
         .doc(chatId)
@@ -496,6 +498,22 @@ export default function ChatPage() {
           participantNames: [userData.displayName || 'Unknown', userName || 'Unknown'],
           lastUpdated: FieldValue.serverTimestamp(),
         }, { merge: true });
+
+      // Send push notification to recipient for media message
+      try {
+        const lastMediaFile = uploadedMedia[uploadedMedia.length - 1];
+        await sendMessageNotification(
+          userId, // recipient user ID
+          userData.displayName || 'Unknown', // sender name
+          mediaText, // media description
+          chatId, // chat ID
+          lastMediaFile.messageType // message type
+        );
+        console.log('Push notification sent for media message');
+      } catch (notificationError) {
+        console.error('Error sending push notification for media:', notificationError);
+        // Don't fail the media sending if notification fails
+      }
 
       // Scroll to bottom after sending
       // setTimeout(() => {
@@ -519,19 +537,19 @@ export default function ChatPage() {
     setUploadingMedia(true);
     setUploadProgress(0);
     setUploadingMessage('Uploading voice note...');
-    
+
     try {
       // Upload voice note to Firebase Storage
       const fileName = `voice/${chatId}/${Date.now()}_voice.m4a`;
       const reference = firebaseStorage.ref().child(fileName);
-      
+
       const response = await fetch(voiceNote.uri);
       const blob = await response.blob();
-      
+
       // Track upload progress for voice notes
       const uploadTask = reference.put(blob);
       await new Promise((resolve, reject) => {
-        uploadTask.on('state_changed', 
+        uploadTask.on('state_changed',
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
             setUploadProgress(progress);
@@ -540,7 +558,7 @@ export default function ChatPage() {
           () => resolve(true)
         );
       });
-      
+
       const mediaUrl = await reference.getDownloadURL();
 
       // Add message to chat
@@ -573,6 +591,21 @@ export default function ChatPage() {
           participantNames: [userData.displayName || 'Unknown', userName || 'Unknown'],
           lastUpdated: FieldValue.serverTimestamp(),
         }, { merge: true });
+
+      // Send push notification to recipient for voice note
+      try {
+        await sendMessageNotification(
+          userId, // recipient user ID
+          userData.displayName || 'Unknown', // sender name
+          '🎤 Voice Note', // voice note description
+          chatId, // chat ID
+          'voice' // message type
+        );
+        console.log('Push notification sent for voice note');
+      } catch (notificationError) {
+        console.error('Error sending push notification for voice note:', notificationError);
+        // Don't fail the voice note sending if notification fails
+      }
 
       // Scroll to bottom after sending
       // setTimeout(() => {
@@ -663,7 +696,7 @@ export default function ChatPage() {
 
     try {
       const isCurrentlyStarred = message.starredBy?.includes(userData.uid);
-      
+
       if (isCurrentlyStarred) {
         // Unstar the message
         await firestore
@@ -765,7 +798,7 @@ export default function ChatPage() {
         .add(messageData);
 
       // Update target chat metadata
-      const lastMessage = forwardingMessage.messageType === 'text' 
+      const lastMessage = forwardingMessage.messageType === 'text'
         ? forwardingMessage.text
         : `📎 ${forwardingMessage.messageType}`;
 
@@ -828,7 +861,7 @@ export default function ChatPage() {
     // Reset values first
     popupAnimation.setValue(0);
     popupScale.setValue(0.8);
-    
+
     Animated.parallel([
       Animated.timing(popupAnimation, {
         toValue: 1,
@@ -871,7 +904,7 @@ export default function ChatPage() {
   const showMessageActions = (message: Message) => {
     // const isOwnMessage = message.senderId === userData?.uid;
     const isStarred = message.starredBy?.includes(userData?.uid || '') || false;
-    
+
     if (Platform.OS === 'ios') {
       const options = [
         'Copy',
@@ -879,13 +912,13 @@ export default function ChatPage() {
         'Reply',
         'Forward',
       ];
-      
+
       // Add pin/unpin option for all messages
       options.push(pinnedMessage?.id === message.id ? 'Unpin' : 'Pin');
-      
+
       // Add delete option for all messages
       options.push('Delete');
-      
+
       options.push('Cancel');
 
       ActionSheetIOS.showActionSheetWithOptions(
@@ -979,6 +1012,21 @@ export default function ChatPage() {
           lastUpdated: FieldValue.serverTimestamp(),
         }, { merge: true });
 
+      // Send push notification to recipient
+      try {
+        await sendMessageNotification(
+          userId, // recipient user ID
+          userData.displayName || 'Unknown', // sender name
+          messageText, // message content
+          chatId, // chat ID
+          'text' // message type
+        );
+        console.log('Push notification sent for text message');
+      } catch (notificationError) {
+        console.error('Error sending push notification:', notificationError);
+        // Don't fail the message sending if notification fails
+      }
+
       // Scroll to bottom after sending
       // setTimeout(() => {
       //   if (flatListRef.current) {
@@ -996,15 +1044,15 @@ export default function ChatPage() {
 
   const getAvatarGradient = (name: string) => {
     const gradients = [
-        // ['#a8edea', '#fed6e3'],
-        // ['#667eea', '#764ba2'],
-        // ['#f093fb', '#f5576c'],
-        // ['#4facfe', '#00f2fe'],
-        // ['#43e97b', '#38f9d7'],
-        // ['#fa709a', '#fee140'],
-        ['#a8edea', '#fed6e3'],
-        // ['#ffecd2', '#fcb69f'],
-        // ['#ff8a80', '#ff7043'], 
+      // ['#a8edea', '#fed6e3'],
+      // ['#667eea', '#764ba2'],
+      // ['#f093fb', '#f5576c'],
+      // ['#4facfe', '#00f2fe'],
+      // ['#43e97b', '#38f9d7'],
+      // ['#fa709a', '#fee140'],
+      ['#a8edea', '#fed6e3'],
+      // ['#ffecd2', '#fcb69f'],
+      // ['#ff8a80', '#ff7043'], 
     ];
     const index = name.charCodeAt(0) % gradients.length;
     return gradients[index];
@@ -1057,7 +1105,7 @@ export default function ChatPage() {
     const isOwnMessage = item.senderId === userData?.uid;
     const isStarred = item.starredBy?.includes(userData?.uid || '') || false;
     const isPinned = item.isPinned || false;
-    
+
     const MessageBubble = ({ children }: { children: React.ReactNode }) => {
       if (isOwnMessage) {
         return (
@@ -1088,7 +1136,7 @@ export default function ChatPage() {
         );
       }
     };
-    
+
     return (
       <View style={[
         styles.modernMessageContainer,
@@ -1120,16 +1168,16 @@ export default function ChatPage() {
                 ]}>
                   {item.replyTo.senderName}
                 </Text>
-                <Text 
+                <Text
                   style={[
                     styles.replyText,
-                    { 
+                    {
                       color: theme.colors.text
                     }
                   ]}
                   numberOfLines={1}
                 >
-                  {item.replyTo.messageType === 'text' 
+                  {item.replyTo.messageType === 'text'
                     ? (item.replyTo.messageText || 'Text message')
                     : `📎 ${item.replyTo.mediaName || item.replyTo.messageType || 'Media'}`
                   }
@@ -1161,74 +1209,76 @@ export default function ChatPage() {
                   styles.forwardText,
                   { color: isOwnMessage ? 'rgba(255,255,255,0.8)' : theme.colors.textSecondary }
                 ]}>
-                  Forwarded 
+                  Forwarded
                 </Text>
               </View>
             )}
 
             {/* Message content */}
             {item.messageType !== 'text' && item.mediaUrl ? (
-              <MediaMessage 
-                message={item} 
+              <MediaMessage
+                message={item}
                 isOwnMessage={isOwnMessage}
                 onMediaPress={() => handleMediaPress(item)}
                 onDocumentPress={() => handleDocumentPress(item)}
+                onLongPress={() => showMessageActions(item)}
               />
             ) : (
-              <Text style={[
-                styles.modernMessageText,
-                { color: isOwnMessage ? '#ffffff' : '#424242' }
-              ]}>
-                {item.text}
-              </Text>
-            )}
-            
-            <View style={styles.messageFooter}>
-              <Text style={[
-                styles.modernMessageTime,
-                { color: theme.colors.text }
-              ]}>
-                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                }) : ''}
-              </Text>
-              {isOwnMessage && (
-                <View style={styles.messageStatus}>
-                  {/* Read receipts with proper tick colors */}
-                  {item.readBy && item.readBy.length > 0 ? (
-                    <View style={styles.readReceipts}>
-                      <Ionicons 
-                        name="checkmark-done" 
-                        size={16} 
-                        color="#2196F3" // Blue double tick for read messages
-                      />
-                      {/* <Text style={[styles.readStatus, { color: '#2196F3' }]}>
+              <View style={{ flexDirection: 'row', gap: 0, alignItems: 'flex-end', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <Text style={[
+                  styles.modernMessageText,
+                  { color: isOwnMessage ? '#ffffff' : '#424242' }
+                ]}>
+                  {item.text}
+                </Text>
+                <Text style={[
+                  styles.modernMessageTime,
+                  { color: isOwnMessage ? theme.colors.text : '#000000' }
+                ]}>
+                  {/* {item.text} */}
+                  {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }) : ''}
+                </Text>
+                {isOwnMessage && (
+                  <View style={styles.messageStatus}>
+                    {/* Read receipts with proper tick colors */}
+                    {item.readBy && item.readBy.length > 0 ? (
+                      <View style={styles.readReceipts}>
+                        <Ionicons
+                          name="checkmark-done"
+                          size={16}
+                          color="#2196F3" // Blue double tick for read messages
+                        />
+                        {/* <Text style={[styles.readStatus, { color: '#2196F3' }]}>
                         Read
                       </Text> */}
-                    </View>
-                  ) : item.timestamp ? (
-                    <View style={styles.readReceipts}>
-                      <Ionicons 
-                        name="checkmark" 
-                        size={16} 
-                        color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
-                      />
-                      {/* <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
+                      </View>
+                    ) : item.timestamp ? (
+                      <View style={styles.readReceipts}>
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
+                        />
+                        {/* <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
                         Delivered
                       </Text> */}
-                    </View>
-                  ) : (
-                    <View style={styles.readReceipts}>
-                      <ActivityIndicator size={12} color="rgba(255,255,255,0.7)" />
-                      <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
-                        Sending...
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
+                      </View>
+                    ) : (
+                      <View style={styles.readReceipts}>
+                        <ActivityIndicator size={12} color="rgba(255,255,255,0.7)" />
+                        <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
+                          Sending...
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            )}
+
           </MessageBubble>
         </TouchableOpacity>
       </View>
@@ -1264,765 +1314,774 @@ export default function ChatPage() {
       resizeMode="cover"
     >
       <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
-      {/* Modern Header with Gradient */}
-      <View style={styles.modernHeader}>
-        <LinearGradient 
-          colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
-          style={styles.headerGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View style={styles.headerContent}>
-            <TouchableOpacity 
-              onPress={() => router.back()} 
-              style={styles.modernBackButton}
-              activeOpacity={0.7}
-            >
-              <View style={styles.backButtonContainer}>
-                <Ionicons name="arrow-back" size={22} color={theme.colors.onPrimary} />
-              </View>
-            </TouchableOpacity>
-            
-            <View style={styles.modernHeaderInfo}>
-              <View style={styles.chatUserAvatar}>
-                {receiverProfileImage ? (
-                  <View style={styles.headerProfileImageContainer}>
-                    <Image source={{ uri: receiverProfileImage }} style={styles.headerProfileImage} />
-                  </View>
-                ) : (
-                  <LinearGradient
-                    colors={[headerColor1, headerColor2]} 
-                    style={styles.headerAvatarGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <Text style={[styles.headerAvatarText, { color: '#000' }]}>
-                      {userName?.charAt(0)?.toUpperCase() || 'U'}
-                    </Text>
-                  </LinearGradient>
-                )}
-              </View>
-              <View style={styles.headerTextContainer}>
-                <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
-                <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>
-                  {otherUserTyping ? 'typing...' : (userPhone ? `${userPhone}` : 'Online')}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </LinearGradient>
-      </View>
+        {/* Modern Header with Gradient */}
+        <View style={styles.modernHeader}>
+          <LinearGradient
+            colors={theme.isDark ? ['#2C3E50', '#34495E'] : ['#0d9488', '#10b981']}
+            style={styles.headerGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.headerContent}>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                style={styles.modernBackButton}
+                activeOpacity={0.7}
+              >
+                <View style={styles.backButtonContainer}>
+                  <Ionicons name="arrow-back" size={22} color={theme.colors.onPrimary} />
+                </View>
+              </TouchableOpacity>
 
-      {/* Pinned Message Banner */}
-      {pinnedMessage && (
-        <TouchableOpacity 
-          style={[styles.pinnedMessageBanner, { backgroundColor: theme.colors.surface }]}
-          onPress={() => {
-            // Scroll to pinned message
-            const messageIndex = messages.findIndex(m => m.id === pinnedMessage.id);
-            if (messageIndex !== -1 && flatListRef.current) {
-              flatListRef.current.scrollToIndex({ index: messageIndex, animated: true });
-            }
-          }}
-          activeOpacity={0.8}
-        >
-          <View style={styles.pinnedMessageContent}>
-            <View style={styles.pinnedMessageIconContainer}>
-              <Ionicons name="pin" size={16} color={theme.colors.primary} />
+              <View style={styles.modernHeaderInfo}>
+                <View style={styles.chatUserAvatar}>
+                  {receiverProfileImage ? (
+                    <View style={styles.headerProfileImageContainer}>
+                      <Image source={{ uri: receiverProfileImage }} style={styles.headerProfileImage} />
+                    </View>
+                  ) : (
+                    <LinearGradient
+                      colors={[headerColor1, headerColor2]}
+                      style={styles.headerAvatarGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Text style={[styles.headerAvatarText, { color: '#000' }]}>
+                        {userName?.charAt(0)?.toUpperCase() || 'U'}
+                      </Text>
+                    </LinearGradient>
+                  )}
+                </View>
+                <View style={styles.headerTextContainer}>
+                  <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
+                  <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>
+                    {otherUserTyping ? 'typing...' : (userPhone ? `${userPhone}` : 'Online')}
+                  </Text>
+                </View>
+              </View>
+              
+              {/* Call Button */}
+              {/* <CallButton
+                receiverId={userId}
+                receiverName={userName}
+                receiverPhone={userPhone}
+                size="medium"
+                variant="outline"
+              /> */}
             </View>
-            <View style={styles.pinnedMessageTextContainer}>
-              <Text style={[styles.pinnedMessageLabel, { color: theme.colors.primary }]}>
-                Pinned by {pinnedMessage.pinnedBy === userData?.uid ? 'you' : pinnedMessage.senderName}
-              </Text>
-                              <Text style={[styles.pinnedMessageText, { color: theme.colors.text }]} numberOfLines={1}>
-                  {pinnedMessage.messageType === 'text' 
+          </LinearGradient>
+        </View>
+
+        {/* Pinned Message Banner */}
+        {pinnedMessage && (
+          <TouchableOpacity
+            style={[styles.pinnedMessageBanner, { backgroundColor: theme.colors.surface }]}
+            onPress={() => {
+              // Scroll to pinned message
+              const messageIndex = messages.findIndex(m => m.id === pinnedMessage.id);
+              if (messageIndex !== -1 && flatListRef.current) {
+                flatListRef.current.scrollToIndex({ index: messageIndex, animated: true });
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.pinnedMessageContent}>
+              <View style={styles.pinnedMessageIconContainer}>
+                <Ionicons name="pin" size={16} color={theme.colors.primary} />
+              </View>
+              <View style={styles.pinnedMessageTextContainer}>
+                <Text style={[styles.pinnedMessageLabel, { color: theme.colors.primary }]}>
+                  Pinned by {pinnedMessage.pinnedBy === userData?.uid ? 'you' : pinnedMessage.senderName}
+                </Text>
+                <Text style={[styles.pinnedMessageText, { color: theme.colors.text }]} numberOfLines={1}>
+                  {pinnedMessage.messageType === 'text'
                     ? (pinnedMessage.text || 'Text message')
                     : `📎 ${pinnedMessage.mediaName || pinnedMessage.messageType || 'Media'}`
                   }
                 </Text>
-            </View>
-            <TouchableOpacity 
-              onPress={unpinMessage}
-              style={styles.unpinButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {/* Messages and Input with proper keyboard handling */}
-      <KeyboardAvoidingView 
-        style={styles.chatBody}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          style={styles.modernMessagesList}
-          contentContainerStyle={styles.modernMessagesContent}
-          showsVerticalScrollIndicator={false}
-          inverted
-          
-        />
-
-        {/* Typing Indicator */}
-        {otherUserTyping && (
-          <View style={[styles.typingIndicator, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.typingContent}>
-              <View style={styles.typingAvatar}>
-                <LinearGradient
-                  colors={getAvatarGradient(userName) as [string, string]}
-                  style={styles.typingAvatarGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <Text style={styles.typingAvatarText}>
-                    {userName?.charAt(0)?.toUpperCase() || 'U'}
-                  </Text>
-                </LinearGradient>
               </View>
-              <View style={styles.typingBubble}>
-                <View style={styles.typingDots}>
-                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                  <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Uploading Media Indicator - Integrated in Input Container */}
-        {uploadingMedia && (
-          <View style={[styles.uploadingIndicator, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.uploadingContent}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-              <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
-                {uploadingMessage}
-              </Text>
-              <View style={styles.uploadingProgressContainer}>
-                <View style={[styles.uploadingProgressBar, { backgroundColor: theme.colors.border }]}>
-                  <View 
-                    style={[
-                      styles.uploadingProgressFill, 
-                      { 
-                        width: `${uploadProgress}%`,
-                        backgroundColor: theme.colors.primary 
-                      }
-                    ]} 
-                  />
-                </View>
-                <Text style={[styles.uploadingProgressText, { color: theme.colors.primary }]}>
-                  {Math.round(uploadProgress)}%
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Reply Bar */}
-        {replyingTo && (
-          <View style={[styles.replyInputBar, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.replyInputContent}>
-              <View style={styles.replyInputInfo}>
-                <View style={styles.replyInputIconContainer}>
-                  <Ionicons name="arrow-undo" size={16} color={theme.colors.primary} />
-                </View>
-                <View style={styles.replyInputTextContainer}>
-                  <Text style={[styles.replyInputLabel, { color: theme.colors.primary }]}>
-                    Replying to {replyingTo.senderName}
-                  </Text>
-                  <Text 
-                    style={[styles.replyInputText, { color: theme.colors.textSecondary }]}
-                    numberOfLines={1}
-                  >
-                    {replyingTo.messageType === 'text' 
-                      ? (replyingTo.messageText || 'Text message')
-                      : `📎 ${replyingTo.mediaName || replyingTo.messageType || 'Media'}`
-                    }
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity 
-                onPress={() => setReplyingTo(null)}
-                style={styles.cancelReplyButton}
+              <TouchableOpacity
+                onPress={unpinMessage}
+                style={styles.unpinButton}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
 
-        {/* Modern Input Container */}
-        <View style={[
-          styles.modernInputContainer, 
-          { 
-            backgroundColor: 'transparent',
-            borderTopColor: 'transparent',
-          }
-        ]}>
-          <View style={[styles.inputWrapper, { 
-            backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
-            borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
-          }]}>
-            {/* Media Button */}
-            <TouchableOpacity
-              style={styles.mediaButton}
-              onPress={() => setShowMediaPicker(true)}
-              disabled={uploadingMedia}
-            >
-              <Ionicons 
-                name="add-circle" 
-                size={24} 
-                color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-              {uploadingMedia && (
-                <View style={styles.mediaButtonLoading}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                </View>
-              )}
-            </TouchableOpacity>
+        {/* Messages and Input with proper keyboard handling */}
+        <KeyboardAvoidingView
+          style={styles.chatBody}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            style={styles.modernMessagesList}
+            contentContainerStyle={styles.modernMessagesContent}
+            showsVerticalScrollIndicator={false}
+            inverted
 
-            {/* Voice Button */}
-            <TouchableOpacity
-              style={styles.voiceButton}
-              onPress={() => setShowVoiceRecorder(true)}
-              disabled={uploadingMedia}
-            >
-              <Ionicons 
-                name="mic" 
-                size={24} 
-                color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-              {uploadingMedia && (
-                <View style={styles.mediaButtonLoading}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TextInput
-              style={[
-                styles.modernTextInput,
-                { 
-                  color: theme.colors.inputText,
-                  backgroundColor: 'transparent',
-                }
-              ]}
-              value={newMessage}
-              onChangeText={handleTextChange}
-              placeholder="Type a message..."
-              placeholderTextColor={theme.colors.inputPlaceholder}
-              multiline
-              maxLength={1000}
-              textAlignVertical="top"
-            />
-            
-            <TouchableOpacity
-              style={[
-                styles.modernSendButton,
-                { opacity: newMessage.trim() ? 1 : 0.6 }
-              ]}
-              onPress={sendMessage}
-              disabled={!newMessage.trim() || loading || uploadingMedia}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={newMessage.trim() ? ['#0d9488', '#10b981'] : [theme.colors.border, theme.colors.border]}
-                style={styles.sendButtonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Ionicons 
-                  name={loading ? "hourglass" : "send"} 
-                  size={18} 
-                  color={theme.colors.onPrimary} 
-                />
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-
-      {/* Media Picker Modal */}
-      <MediaPicker
-        isVisible={showMediaPicker}
-        onClose={() => setShowMediaPicker(false)}
-        onMediaSelected={sendMediaMessage}
-        onVoiceRecorded={sendVoiceMessage}
-        isUploading={uploadingMedia}
-      />
-
-      {/* Voice Recorder Modal */}
-      <VoiceRecorder
-        isVisible={showVoiceRecorder}
-        onClose={() => setShowVoiceRecorder(false)}
-        onVoiceRecorded={sendVoiceMessage}
-        isUploading={uploadingMedia}
-      />
-
-      {/* Full Screen Media Modal */}
-      <Modal
-        visible={showFullScreenMedia}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowFullScreenMedia(false)}
-      >
-        <View style={styles.fullScreenModal}>
-          <TouchableOpacity 
-            style={styles.fullScreenCloseButton}
-            onPress={() => setShowFullScreenMedia(false)}
-          >
-            <Ionicons name="close" size={30} color="#ffffff" />
-          </TouchableOpacity>
-          
-          {fullScreenMedia && (
-            <>
-              {fullScreenMedia.type === 'image' ? (
-                <Image
-                  source={{ uri: fullScreenMedia.uri }}
-                  style={styles.fullScreenImage}
-                  contentFit="contain"
-                />
-              ) : null}
-              
-              {fullScreenMedia.name && (
-                <Text style={styles.fullScreenMediaName}>{fullScreenMedia.name}</Text>
-              )}
-            </>
-          )}
-        </View>
-      </Modal>
-
-      {/* Video Player Modal */}
-      <Modal
-        visible={showVideoPlayer}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowVideoPlayer(false)}
-      >
-        <View style={styles.fullScreenModal}>
-          {selectedMedia && (
-            <VideoPlayer
-              uri={selectedMedia.mediaUrl!}
-              onClose={() => setShowVideoPlayer(false)}
-              isFullScreen={true}
-            />
-          )}
-        </View>
-      </Modal>
-
-      {/* Document Viewer Modal */}
-      <Modal
-        visible={showDocumentViewer}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowDocumentViewer(false)}
-      >
-        <View style={styles.documentModal}>
-          {selectedMedia && (
-            <DocumentViewer
-              mediaUrl={selectedMedia.mediaUrl!}
-              fileName={selectedMedia.mediaName || 'Document'}
-              mediaType={selectedMedia.messageType === 'document' ? 'application/octet-stream' : 'image/jpeg'}
-              mediaSize={selectedMedia.mediaSize}
-              onClose={() => setShowDocumentViewer(false)}
-            />
-          )}
-        </View>
-      </Modal>
-
-      {/* PDF Viewer Modal */}
-      <Modal
-        visible={showPDFViewer}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPDFViewer(false)}
-      >
-        <View style={styles.documentModal}>
-          {selectedMedia && (
-            <PDFViewer
-              mediaUrl={selectedMedia.mediaUrl!}
-              fileName={selectedMedia.mediaName || 'Document.pdf'}
-              mediaSize={selectedMedia.mediaSize}
-              onClose={() => setShowPDFViewer(false)}
-            />
-          )}
-        </View>
-      </Modal>
-
-      {/* Custom Action Popup Modal */}
-      <Modal
-        visible={showActionSheet}
-        transparent
-        animationType="none"
-        onRequestClose={animatePopupOut}
-        statusBarTranslucent
-        hardwareAccelerated
-      >
-        <View style={styles.actionPopupOverlay} pointerEvents="box-none">
-          <Animated.View
-            style={[
-              styles.actionPopupBackdrop,
-              {
-                opacity: popupAnimation,
-              },
-            ]}
-            pointerEvents="none"
           />
-          <TouchableOpacity 
-            style={styles.actionPopupBackdrop}
-            onPress={animatePopupOut}
-            activeOpacity={1}
-          />
-          <Animated.View 
-            style={[
-              styles.actionPopupContainer, 
-              { 
-                backgroundColor: theme.colors.surface,
-                opacity: popupAnimation,
-                transform: [{ scale: popupScale }],
-              }
-            ]}
-            pointerEvents="box-none"
-          >
-            {selectedMessageForActions && (
-              <>
-                {/* Selected Message Display */}
-                <View style={styles.selectedMessageContainer}>
-                  <View style={[
-                    styles.selectedMessageBubble,
-                    { 
-                      backgroundColor: selectedMessageForActions.senderId === userData?.uid 
-                        ? theme.colors.primary 
-                        : theme.colors.border 
-                    }
-                  ]}>
-                    <Text style={[
-                      styles.selectedMessageText,
-                      { 
-                        color: selectedMessageForActions.senderId === userData?.uid 
-                          ? '#FFFFFF' 
-                          : theme.colors.text 
-                      }
-                    ]}>
-                      {selectedMessageForActions.text}
-                    </Text>
-                    <Text style={[
-                      styles.selectedMessageTime,
-                      { 
-                        color: selectedMessageForActions.senderId === userData?.uid 
-                          ? 'rgba(255, 255, 255, 0.7)' 
-                          : theme.colors.textSecondary 
-                      }
-                    ]}>
-                      {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }) : ''}
-                    </Text>
-                  </View>
-                </View>
 
-                {/* Action Buttons */}
-                <View style={styles.actionPopupActions}>
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      replyToMessage(selectedMessageForActions);
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Reply</Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
-                        <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.primary} />
-                      </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      setForwardingMessage(selectedMessageForActions);
-                      setShowContactsList(true);
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Forward</Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 152, 0, 0.1)' }]}>
-                        <Ionicons name="share-outline" size={18} color={theme.colors.primary} />
-                      </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      copyMessage(selectedMessageForActions);
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Copy</Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(103, 126, 234, 0.1)' }]}>
-                        <Ionicons name="copy-outline" size={18} color={theme.colors.primary} />
-                      </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      starMessage(selectedMessageForActions);
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
-                        {selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? 'Unstar' : 'Star'}
-                      </Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
-                        <Ionicons 
-                          name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"} 
-                          size={18} 
-                          color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary} 
-                        />
-                      </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      if (pinnedMessage?.id === selectedMessageForActions.id) {
-                        unpinMessage();
-                      } else {
-                        pinMessage(selectedMessageForActions);
-                      }
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
-                        {pinnedMessage?.id === selectedMessageForActions.id ? 'Unpin' : 'Pin'}
-                      </Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                        <Ionicons 
-                          name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"} 
-                          size={18} 
-                          color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary} 
-                        />
-                      </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      // Report functionality can be added here
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Report</Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
-                        <Ionicons name="warning-outline" size={18} color="#FF9800" />
-                      </View>
-                  </TouchableOpacity>
-
-                  {/* Delete Option - Available for all messages */}
-                  <TouchableOpacity
-                    style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
-                    onPress={() => {
-                      deleteMessage(selectedMessageForActions);
-                      animatePopupOut();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.actionPopupButtonContent}>
-                      <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
-                        Delete
-                      </Text>
-                    </View>
-                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
-                        <Ionicons 
-                          name="trash-outline" 
-                          size={18} 
-                          color="#F44336" 
-                        />
-                      </View>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </Animated.View>
-        </View>
-      </Modal>
-
-      {/* Custom Alert Modal */}
-      <Modal
-        visible={customAlert.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={hideCustomAlert}
-      >
-        <View style={styles.customAlertOverlay}>
-          <View style={[styles.customAlertContainer, { backgroundColor: theme.colors.surface }]}>
-            {/* Alert Icon */}
-            <View style={[
-              styles.alertIconContainer,
-              {
-                backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
-                               customAlert.type === 'error' ? '#F44336' :
-                               customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
-              }
-            ]}>
-              <Ionicons 
-                name={
-                  customAlert.type === 'success' ? 'checkmark-circle' :
-                  customAlert.type === 'error' ? 'close-circle' :
-                  customAlert.type === 'warning' ? 'warning' : 'information-circle'
-                } 
-                size={32} 
-                color="#ffffff" 
-              />
-            </View>
-
-            {/* Alert Title */}
-            <Text style={[styles.alertTitle, { color: theme.colors.text }]}>
-              {customAlert.title}
-            </Text>
-
-            {/* Alert Message */}
-            <Text style={[styles.alertMessage, { color: theme.colors.textSecondary }]}>
-              {customAlert.message}
-            </Text>
-
-            {/* Action Buttons */}
-            <View style={styles.alertButtonsContainer}>
-              {customAlert.type === 'warning' && customAlert.onConfirm && (
-                <TouchableOpacity
-                  style={[styles.alertButton, styles.alertCancelButton]}
-                  onPress={hideCustomAlert}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.alertCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              )}
-              
-              <TouchableOpacity
-                style={[
-                  styles.alertButton,
-                  {
-                    backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
-                                   customAlert.type === 'error' ? '#F44336' :
-                                   customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
-                  }
-                ]}
-                onPress={() => {
-                  if (customAlert.onConfirm) {
-                    customAlert.onConfirm();
-                  }
-                  hideCustomAlert();
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.alertButtonText}>
-                  {customAlert.type === 'warning' && customAlert.onConfirm ? 'Delete' : 'OK'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Contacts List Modal for Forwarding */}
-      <Modal
-        visible={showContactsList}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          setShowContactsList(false);
-          setForwardingMessage(null);
-        }}
-      >
-        <View style={styles.contactsModal}>
-          <View style={[styles.contactsContainer, { backgroundColor: theme.colors.background }]}>
-            <View style={styles.contactsHeader}>
-              <View style={styles.contactsHeaderInfo}>
-                <Text style={[styles.contactsTitle, { color: theme.colors.text }]}>
-                  Forward to
-                </Text>
-                {forwardingMessage && (
-                  <Text style={[styles.forwardingPreview, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                    {forwardingMessage.messageType === 'text' 
-                      ? (forwardingMessage.text || 'Text message')
-                      : `📎 ${forwardingMessage.mediaName || forwardingMessage.messageType || 'Media'}`
-                    }
-                  </Text>
-                )}
-              </View>
-              <TouchableOpacity 
-                onPress={() => {
-                  setShowContactsList(false);
-                  setForwardingMessage(null);
-                }}
-                style={styles.contactsCloseButton}
-              >
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-            
-            <FlatList
-              data={contacts}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.contactItem, { borderBottomColor: theme.colors.border }]}
-                  onPress={() => forwardMessage(item.chatId)}
-                >
+          {/* Typing Indicator */}
+          {otherUserTyping && (
+            <View style={[styles.typingIndicator, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.typingContent}>
+                <View style={styles.typingAvatar}>
                   <LinearGradient
-                    colors={getAvatarGradient(item.name) as any}
-                    style={styles.contactAvatar}
+                    colors={getAvatarGradient(userName) as [string, string]}
+                    style={styles.typingAvatarGradient}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                   >
-                    <Text style={styles.contactAvatarText}>
-                      {item.name?.charAt(0)?.toUpperCase() || 'U'}
+                    <Text style={styles.typingAvatarText}>
+                      {userName?.charAt(0)?.toUpperCase() || 'U'}
                     </Text>
                   </LinearGradient>
-                  <View style={styles.contactInfo}>
-                    <Text style={[styles.contactName, { color: theme.colors.text }]}>
-                      {item.name}
+                </View>
+                <View style={styles.typingBubble}>
+                  <View style={styles.typingDots}>
+                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                    <View style={[styles.typingDot, { backgroundColor: theme.colors.textSecondary }]} />
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Uploading Media Indicator - Integrated in Input Container */}
+          {uploadingMedia && (
+            <View style={[styles.uploadingIndicator, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.uploadingContent}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
+                  {uploadingMessage}
+                </Text>
+                <View style={styles.uploadingProgressContainer}>
+                  <View style={[styles.uploadingProgressBar, { backgroundColor: theme.colors.border }]}>
+                    <View
+                      style={[
+                        styles.uploadingProgressFill,
+                        {
+                          width: `${uploadProgress}%`,
+                          backgroundColor: theme.colors.primary
+                        }
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.uploadingProgressText, { color: theme.colors.primary }]}>
+                    {Math.round(uploadProgress)}%
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Reply Bar */}
+          {replyingTo && (
+            <View style={[styles.replyInputBar, { backgroundColor: theme.colors.surface }]}>
+              <View style={styles.replyInputContent}>
+                <View style={styles.replyInputInfo}>
+                  <View style={styles.replyInputIconContainer}>
+                    <Ionicons name="arrow-undo" size={16} color={theme.colors.primary} />
+                  </View>
+                  <View style={styles.replyInputTextContainer}>
+                    <Text style={[styles.replyInputLabel, { color: theme.colors.primary }]}>
+                      Replying to {replyingTo.senderName}
                     </Text>
-                    <Text style={[styles.contactSubtitle, { color: theme.colors.textSecondary }]}>
-                      Forward from {userData?.displayName || 'You'}
+                    <Text
+                      style={[styles.replyInputText, { color: theme.colors.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {replyingTo.messageType === 'text'
+                        ? (replyingTo.messageText || 'Text message')
+                        : `📎 ${replyingTo.mediaName || replyingTo.messageType || 'Media'}`
+                      }
                     </Text>
                   </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setReplyingTo(null)}
+                  style={styles.cancelReplyButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
-              )}
-              style={styles.contactsList}
-            />
-          </View>
-        </View>
-      </Modal>
+              </View>
+            </View>
+          )}
 
-          </SafeAreaView>
+          {/* Modern Input Container */}
+          <View style={[
+            styles.modernInputContainer,
+            {
+              backgroundColor: 'transparent',
+              borderTopColor: 'transparent',
+            }
+          ]}>
+            <View style={[styles.inputWrapper, {
+              backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+              borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+            }]}>
+              {/* Media Button */}
+              <TouchableOpacity
+                style={styles.mediaButton}
+                onPress={() => setShowMediaPicker(true)}
+                disabled={uploadingMedia}
+              >
+                <Ionicons
+                  name="add-circle"
+                  size={24}
+                  color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                />
+                {uploadingMedia && (
+                  <View style={styles.mediaButtonLoading}>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {/* Voice Button */}
+              <TouchableOpacity
+                style={styles.voiceButton}
+                onPress={() => setShowVoiceRecorder(true)}
+                disabled={uploadingMedia}
+              >
+                <Ionicons
+                  name="mic"
+                  size={24}
+                  color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                />
+                {uploadingMedia && (
+                  <View style={styles.mediaButtonLoading}>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TextInput
+                style={[
+                  styles.modernTextInput,
+                  {
+                    color: theme.colors.inputText,
+                    backgroundColor: 'transparent',
+                  }
+                ]}
+                value={newMessage}
+                onChangeText={handleTextChange}
+                placeholder="Type a message..."
+                placeholderTextColor={theme.colors.inputPlaceholder}
+                multiline
+                maxLength={1000}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.modernSendButton,
+                  { opacity: newMessage.trim() ? 1 : 0.6 }
+                ]}
+                onPress={sendMessage}
+                disabled={!newMessage.trim() || loading || uploadingMedia}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={newMessage.trim() ? ['#0d9488', '#10b981'] : [theme.colors.border, theme.colors.border]}
+                  style={styles.sendButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <Ionicons
+                    name={loading ? "hourglass" : "send"}
+                    size={18}
+                    color={theme.colors.onPrimary}
+                  />
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+
+        {/* Media Picker Modal */}
+        <MediaPicker
+          isVisible={showMediaPicker}
+          onClose={() => setShowMediaPicker(false)}
+          onMediaSelected={sendMediaMessage}
+          onVoiceRecorded={sendVoiceMessage}
+          isUploading={uploadingMedia}
+        />
+
+        {/* Voice Recorder Modal */}
+        <VoiceRecorder
+          isVisible={showVoiceRecorder}
+          onClose={() => setShowVoiceRecorder(false)}
+          onVoiceRecorded={sendVoiceMessage}
+          isUploading={uploadingMedia}
+        />
+
+        {/* Full Screen Media Modal */}
+        <Modal
+          visible={showFullScreenMedia}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowFullScreenMedia(false)}
+        >
+          <View style={styles.fullScreenModal}>
+            <TouchableOpacity
+              style={styles.fullScreenCloseButton}
+              onPress={() => setShowFullScreenMedia(false)}
+            >
+              <Ionicons name="close" size={30} color="#ffffff" />
+            </TouchableOpacity>
+
+            {fullScreenMedia && (
+              <>
+                {fullScreenMedia.type === 'image' ? (
+                  <Image
+                    source={{ uri: fullScreenMedia.uri }}
+                    style={styles.fullScreenImage}
+                    contentFit="contain"
+                  />
+                ) : null}
+
+                {fullScreenMedia.name && (
+                  <Text style={styles.fullScreenMediaName}>{fullScreenMedia.name}</Text>
+                )}
+              </>
+            )}
+          </View>
+        </Modal>
+
+        {/* Video Player Modal */}
+        <Modal
+          visible={showVideoPlayer}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowVideoPlayer(false)}
+        >
+          <View style={styles.fullScreenModal}>
+            {selectedMedia && (
+              <VideoPlayer
+                uri={selectedMedia.mediaUrl!}
+                onClose={() => setShowVideoPlayer(false)}
+                isFullScreen={true}
+              />
+            )}
+          </View>
+        </Modal>
+
+        {/* Document Viewer Modal */}
+        <Modal
+          visible={showDocumentViewer}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDocumentViewer(false)}
+        >
+          <View style={styles.documentModal}>
+            {selectedMedia && (
+              <DocumentViewer
+                mediaUrl={selectedMedia.mediaUrl!}
+                fileName={selectedMedia.mediaName || 'Document'}
+                mediaType={selectedMedia.messageType === 'document' ? 'application/octet-stream' : 'image/jpeg'}
+                mediaSize={selectedMedia.mediaSize}
+                onClose={() => setShowDocumentViewer(false)}
+              />
+            )}
+          </View>
+        </Modal>
+
+        {/* PDF Viewer Modal */}
+        <Modal
+          visible={showPDFViewer}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPDFViewer(false)}
+        >
+          <View style={styles.documentModal}>
+            {selectedMedia && (
+              <PDFViewer
+                mediaUrl={selectedMedia.mediaUrl!}
+                fileName={selectedMedia.mediaName || 'Document.pdf'}
+                mediaSize={selectedMedia.mediaSize}
+                onClose={() => setShowPDFViewer(false)}
+              />
+            )}
+          </View>
+        </Modal>
+
+        {/* Custom Action Popup Modal */}
+        <Modal
+          visible={showActionSheet}
+          transparent
+          animationType="none"
+          onRequestClose={animatePopupOut}
+          statusBarTranslucent
+          hardwareAccelerated
+        >
+          <View style={styles.actionPopupOverlay} pointerEvents="box-none">
+            <Animated.View
+              style={[
+                styles.actionPopupBackdrop,
+                {
+                  opacity: popupAnimation,
+                },
+              ]}
+              pointerEvents="none"
+            />
+            <TouchableOpacity
+              style={styles.actionPopupBackdrop}
+              onPress={animatePopupOut}
+              activeOpacity={1}
+            />
+            <Animated.View
+              style={[
+                styles.actionPopupContainer,
+                {
+                  backgroundColor: theme.colors.surface,
+                  opacity: popupAnimation,
+                  transform: [{ scale: popupScale }],
+                }
+              ]}
+              pointerEvents="box-none"
+            >
+              {selectedMessageForActions && (
+                <>
+                  {/* Selected Message Display */}
+                  <View style={styles.selectedMessageContainer}>
+                    <View style={[
+                      styles.selectedMessageBubble,
+                      {
+                        backgroundColor: selectedMessageForActions.senderId === userData?.uid
+                          ? theme.colors.primary
+                          : theme.colors.border
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.selectedMessageText,
+                        {
+                          color: selectedMessageForActions.senderId === userData?.uid
+                            ? '#FFFFFF'
+                            : theme.colors.text
+                        }
+                      ]}>
+                        {selectedMessageForActions.text}
+                      </Text>
+                      <Text style={[
+                        styles.selectedMessageTime,
+                        {
+                          color: selectedMessageForActions.senderId === userData?.uid
+                            ? 'rgba(255, 255, 255, 0.7)'
+                            : theme.colors.textSecondary
+                        }
+                      ]}>
+                        {selectedMessageForActions.timestamp ? new Date(selectedMessageForActions.timestamp.toDate()).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }) : ''}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons */}
+                  <View style={styles.actionPopupActions}>
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        replyToMessage(selectedMessageForActions);
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Reply</Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                        <Ionicons name="arrow-undo-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        setForwardingMessage(selectedMessageForActions);
+                        setShowContactsList(true);
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Forward</Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 152, 0, 0.1)' }]}>
+                        <Ionicons name="share-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        copyMessage(selectedMessageForActions);
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Copy</Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(103, 126, 234, 0.1)' }]}>
+                        <Ionicons name="copy-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        starMessage(selectedMessageForActions);
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                          {selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? 'Unstar' : 'Star'}
+                        </Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
+                        <Ionicons
+                          name={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "star" : "star-outline"}
+                          size={18}
+                          color={selectedMessageForActions.starredBy?.includes(userData?.uid || '') ? "#FFD700" : theme.colors.primary}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        if (pinnedMessage?.id === selectedMessageForActions.id) {
+                          unpinMessage();
+                        } else {
+                          pinMessage(selectedMessageForActions);
+                        }
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                          {pinnedMessage?.id === selectedMessageForActions.id ? 'Unpin' : 'Pin'}
+                        </Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                        <Ionicons
+                          name={pinnedMessage?.id === selectedMessageForActions.id ? "pin" : "pin-outline"}
+                          size={18}
+                          color={pinnedMessage?.id === selectedMessageForActions.id ? "#FF6B6B" : theme.colors.primary}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        // Report functionality can be added here
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>Report</Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(255, 193, 7, 0.1)' }]}>
+                        <Ionicons name="warning-outline" size={18} color="#FF9800" />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Delete Option - Available for all messages */}
+                    <TouchableOpacity
+                      style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        deleteMessage(selectedMessageForActions);
+                        animatePopupOut();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.actionPopupButtonContent}>
+                        <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
+                          Delete
+                        </Text>
+                      </View>
+                      <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color="#F44336"
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </Animated.View>
+          </View>
+        </Modal>
+
+        {/* Custom Alert Modal */}
+        <Modal
+          visible={customAlert.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={hideCustomAlert}
+        >
+          <View style={styles.customAlertOverlay}>
+            <View style={[styles.customAlertContainer, { backgroundColor: theme.colors.surface }]}>
+              {/* Alert Icon */}
+              <View style={[
+                styles.alertIconContainer,
+                {
+                  backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
+                    customAlert.type === 'error' ? '#F44336' :
+                      customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
+                }
+              ]}>
+                <Ionicons
+                  name={
+                    customAlert.type === 'success' ? 'checkmark-circle' :
+                      customAlert.type === 'error' ? 'close-circle' :
+                        customAlert.type === 'warning' ? 'warning' : 'information-circle'
+                  }
+                  size={32}
+                  color="#ffffff"
+                />
+              </View>
+
+              {/* Alert Title */}
+              <Text style={[styles.alertTitle, { color: theme.colors.text }]}>
+                {customAlert.title}
+              </Text>
+
+              {/* Alert Message */}
+              <Text style={[styles.alertMessage, { color: theme.colors.textSecondary }]}>
+                {customAlert.message}
+              </Text>
+
+              {/* Action Buttons */}
+              <View style={styles.alertButtonsContainer}>
+                {customAlert.type === 'warning' && customAlert.onConfirm && (
+                  <TouchableOpacity
+                    style={[styles.alertButton, styles.alertCancelButton]}
+                    onPress={hideCustomAlert}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.alertCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={[
+                    styles.alertButton,
+                    {
+                      backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
+                        customAlert.type === 'error' ? '#F44336' :
+                          customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
+                    }
+                  ]}
+                  onPress={() => {
+                    if (customAlert.onConfirm) {
+                      customAlert.onConfirm();
+                    }
+                    hideCustomAlert();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.alertButtonText}>
+                    {customAlert.type === 'warning' && customAlert.onConfirm ? 'Delete' : 'OK'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Contacts List Modal for Forwarding */}
+        <Modal
+          visible={showContactsList}
+          transparent
+          animationType="slide"
+          onRequestClose={() => {
+            setShowContactsList(false);
+            setForwardingMessage(null);
+          }}
+        >
+          <View style={styles.contactsModal}>
+            <View style={[styles.contactsContainer, { backgroundColor: theme.colors.background }]}>
+              <View style={styles.contactsHeader}>
+                <View style={styles.contactsHeaderInfo}>
+                  <Text style={[styles.contactsTitle, { color: theme.colors.text }]}>
+                    Forward to
+                  </Text>
+                  {forwardingMessage && (
+                    <Text style={[styles.forwardingPreview, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                      {forwardingMessage.messageType === 'text'
+                        ? (forwardingMessage.text || 'Text message')
+                        : `📎 ${forwardingMessage.mediaName || forwardingMessage.messageType || 'Media'}`
+                      }
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowContactsList(false);
+                    setForwardingMessage(null);
+                  }}
+                  style={styles.contactsCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <FlatList
+                data={contacts}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.contactItem, { borderBottomColor: theme.colors.border }]}
+                    onPress={() => forwardMessage(item.chatId)}
+                  >
+                    <LinearGradient
+                      colors={getAvatarGradient(item.name) as any}
+                      style={styles.contactAvatar}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Text style={styles.contactAvatarText}>
+                        {item.name?.charAt(0)?.toUpperCase() || 'U'}
+                      </Text>
+                    </LinearGradient>
+                    <View style={styles.contactInfo}>
+                      <Text style={[styles.contactName, { color: theme.colors.text }]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.contactSubtitle, { color: theme.colors.textSecondary }]}>
+                        Forward from {userData?.displayName || 'You'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                style={styles.contactsList}
+              />
+            </View>
+          </View>
+        </Modal>
+
+      </SafeAreaView>
     </ImageBackground>
   );
 }
@@ -2036,7 +2095,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  
+
   // Modern header styles
   modernHeader: {
     shadowColor: '#000',
@@ -2055,6 +2114,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 16,
   },
   modernBackButton: {
     marginRight: 16,
@@ -2154,6 +2214,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginVertical: 8,
     paddingHorizontal: 4,
+    position: 'relative',
   },
   ownMessage: {
     justifyContent: 'flex-end',
@@ -2185,11 +2246,13 @@ const styles = StyleSheet.create({
   },
   modernMessageBubble: {
     maxWidth: '78%',
-    minWidth: 120,
+    minWidth: 90,
     paddingHorizontal: 3,
     paddingVertical: 3,
     borderRadius: 12,
     position: 'relative',
+    overflow: 'hidden',
+
   },
   ownMessageBubble: {
     borderBottomRightRadius: 8,
@@ -2203,7 +2266,7 @@ const styles = StyleSheet.create({
   },
   otherMessageBubble: {
     borderBottomLeftRadius: 8,
-    marginRight:'auto',
+    marginRight: 'auto',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
@@ -2215,10 +2278,10 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     letterSpacing: 0.2,
-    padding:8
+    padding: 8
   },
   messageFooter: {
-    // position: 'absolute',
+    position: 'absolute',
     bottom: 4,
     right: 12,
     flexDirection: 'row',
@@ -2416,7 +2479,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#ffffff',
   },
-  
+
   // Media Button Loading Indicator
   mediaButtonLoading: {
     position: 'absolute',
@@ -2502,7 +2565,7 @@ const styles = StyleSheet.create({
   },
   otherReplyContainer: {
     maxWidth: '78%',
-    backgroundColor:'#0d9488',
+    backgroundColor: '#0d9488',
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.15)',
   },
@@ -2807,7 +2870,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  forwardIndicator:{
+  forwardIndicator: {
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
@@ -2816,7 +2879,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
   },
-  forwardText:{
+  forwardText: {
     marginLeft: 4,
   },
   selectedMessageContainer: {

@@ -134,7 +134,7 @@ export default function DocumentViewer({
       setIsDownloading(false);
       unsubscribe();
 
-      Alert.alert('Success', 'Document downloaded successfully!');
+      // Alert.alert('Success', 'Document downloaded successfully!');
     } catch (error) {
       console.error('Download error:', error);
       setError(error instanceof Error ? error.message : 'Download failed');

@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Dimensions,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
@@ -26,9 +27,33 @@ export default function VideoPlayer({ uri, onClose, isFullScreen = false }: Vide
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Debug logging
   console.log('VideoPlayer received URI:', uri);
+
+  // Validate URI
+  useEffect(() => {
+    if (!uri || uri.trim() === '') {
+      setError('Invalid video URL provided');
+      return;
+    }
+    
+    // Check if URI is accessible
+    const validateUri = async () => {
+      try {
+        const response = await fetch(uri, { method: 'HEAD' });
+        if (!response.ok) {
+          setError('Video file not accessible. Please check the URL.');
+        }
+      } catch (error) {
+        console.warn('Could not validate URI, proceeding anyway:', error);
+        // Continue anyway - some URIs might not support HEAD requests
+      }
+    };
+    
+    validateUri();
+  }, [uri]);
 
   const togglePlayPause = async () => {
     try {
@@ -36,32 +61,82 @@ export default function VideoPlayer({ uri, onClose, isFullScreen = false }: Vide
       console.log('Video ref exists:', !!videoRef.current);
       console.log('Current isPlaying state:', isPlaying);
       
-      if (videoRef.current) {
-        if (isPlaying) {
-          console.log('Pausing video...');
-          await videoRef.current.pauseAsync();
-          console.log('Video paused successfully');
-        } else {
-          console.log('Playing video...');
-          await videoRef.current.playAsync();
-          console.log('Video play command sent');
-        }
-      } else {
+      if (!videoRef.current) {
         console.log('Video ref is null - cannot control video');
         setError('Video player not ready');
+        return;
       }
-    } catch (error) {
+
+      if (isPlaying) {
+        console.log('Pausing video...');
+        await videoRef.current.pauseAsync();
+        console.log('Video paused successfully');
+      } else {
+        console.log('Playing video...');
+        await videoRef.current.playAsync();
+        console.log('Video play command sent');
+      }
+    } catch (error: any) {
       console.error('Error toggling play/pause:', error);
-      setError('Failed to control video playback: ' + error);
+      
+      // Handle specific audio focus errors
+      if (error?.message && error.message.includes('AudioFocusNotAcquiredException')) {
+        setError('Audio focus issue. Please close other audio apps and try again.');
+        
+        // Show user-friendly alert with troubleshooting steps
+        Alert.alert(
+          'Audio Focus Error',
+          'Unable to play video due to audio focus issues.\n\nTroubleshooting steps:\n\n1. Close other audio/video apps\n2. Check if your device is in silent mode\n3. Try the "Try Muted" option\n4. Restart your device if the issue persists',
+          [
+            { text: 'OK', style: 'default' },
+            { 
+              text: 'Try Muted', 
+              onPress: () => tryPlayMuted() 
+            },
+            {
+              text: 'Alternative Settings',
+              onPress: () => tryAlternativePlayback()
+            }
+          ]
+        );
+      } else {
+        setError('Failed to control video playback: ' + (error?.message || 'Unknown error'));
+      }
     }
   };
 
-  // Initialize video when component mounts
-  React.useEffect(() => {
-    if (videoRef.current) {
-      console.log('Video ref initialized');
+  const tryPlayMuted = async () => {
+    try {
+      if (videoRef.current) {
+        console.log('Attempting to play video muted...');
+        await videoRef.current.setIsMutedAsync(true);
+        await videoRef.current.playAsync();
+        setError(null);
+      }
+    } catch (error: any) {
+      console.error('Error playing muted video:', error);
+      setError('Failed to play video even when muted');
     }
-  }, []);
+  };
+
+  const tryAlternativePlayback = async () => {
+    try {
+      if (videoRef.current) {
+        console.log('Trying alternative playback settings...');
+        
+        // Try with different settings
+        await videoRef.current.setIsMutedAsync(true);
+        await videoRef.current.setVolumeAsync(0.0);
+        
+        // Try to play with minimal audio requirements
+        await videoRef.current.playAsync();
+        setError(null);
+      }
+    } catch (error: any) {
+      console.error('Error with alternative playback:', error);
+      setError('All playback methods failed. Please check your device settings.');
+    }
+  };
 
   const handlePlaybackStatusUpdate = (playbackStatus: any) => {
     console.log('Playback status update:', playbackStatus);
@@ -69,18 +144,68 @@ export default function VideoPlayer({ uri, onClose, isFullScreen = false }: Vide
     setIsPlaying(playbackStatus.isPlaying);
     setIsLoading(false);
     
-    // Don't auto-play - let user control it manually
+    // Clear any previous errors when playback starts successfully
+    if (playbackStatus.isPlaying && error) {
+      setError(null);
+    }
   };
 
   const handleLoadStart = () => {
     setIsLoading(true);
     setError(null);
+    console.log('Video loading started...');
   };
 
   const handleError = (error: string) => {
     console.error('Video error:', error);
     setError(error);
     setIsLoading(false);
+    
+    // Auto-retry for certain types of errors
+    if (error.includes('Network') && retryCount < 2) {
+      console.log('Auto-retrying due to network error...');
+      setTimeout(() => {
+        retryVideo();
+      }, 2000);
+    }
+  };
+
+  const handleLoad = () => {
+    console.log('Video loaded successfully');
+    setIsLoading(false);
+    setError(null);
+    setRetryCount(0); // Reset retry count on successful load
+  };
+
+  const retryVideo = async () => {
+    if (retryCount >= 3) {
+      setError('Maximum retry attempts reached. Please check your connection and try again.');
+      return;
+    }
+    
+    setRetryCount(prev => prev + 1);
+    setError(null);
+    setIsLoading(true);
+    
+    try {
+      if (videoRef.current) {
+        // Reset video player completely
+        await videoRef.current.unloadAsync();
+        await videoRef.current.loadAsync({ uri }, {}, false);
+      }
+    } catch (error: any) {
+      console.error('Error retrying video:', error);
+      
+      // Provide specific error messages based on error type
+      if (error?.message?.includes('Network')) {
+        setError('Network error. Please check your internet connection.');
+      } else if (error?.message?.includes('AudioFocus')) {
+        setError('Audio focus issue. Try closing other audio apps.');
+      } else {
+        setError('Failed to retry video: ' + (error?.message || 'Unknown error'));
+      }
+      setIsLoading(false);
+    }
   };
 
   const formatTime = (milliseconds: number) => {
@@ -115,6 +240,33 @@ export default function VideoPlayer({ uri, onClose, isFullScreen = false }: Vide
           <Text style={[styles.errorSubtext, { color: theme.colors.textSecondary }]}>
             {error}
           </Text>
+          
+          {/* Retry and Muted Options */}
+          <View style={styles.errorActions}>
+            <TouchableOpacity 
+              style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
+              onPress={retryVideo}
+            >
+              <Ionicons name="refresh" size={20} color="#ffffff" />
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.mutedButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary }]}
+              onPress={tryPlayMuted}
+            >
+              <Ionicons name="volume-mute" size={20} color={theme.colors.primary} />
+              <Text style={[styles.mutedButtonText, { color: theme.colors.primary }]}>Try Muted</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.alternativeButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.secondary }]}
+              onPress={tryAlternativePlayback}
+            >
+              <Ionicons name="settings" size={20} color={theme.colors.secondary} />
+              <Text style={[styles.alternativeButtonText, { color: theme.colors.secondary }]}>Alternative</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
@@ -138,7 +290,7 @@ export default function VideoPlayer({ uri, onClose, isFullScreen = false }: Vide
          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
          onLoadStart={handleLoadStart}
          onError={handleError}
-         onLoad={() => console.log('Video loaded successfully')}
+         onLoad={handleLoad}
          shouldPlay={false}
          isMuted={false}
        />
@@ -315,5 +467,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
+  },
+  errorActions: {
+    flexDirection: 'row',
+    marginTop: 20,
+    gap: 10,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    gap: 5,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  mutedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 5,
+  },
+  mutedButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  alternativeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 5,
+  },
+  alternativeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

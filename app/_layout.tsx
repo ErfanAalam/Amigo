@@ -2,7 +2,11 @@
 import { Stack } from "expo-router";
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+// import IncomingCallHandler from '../components/IncomingCallHandler';
 import { AuthProvider, useAuth } from "../context/AuthContext";
+// import { CallProvider } from '../context/CallContext';
+import { NotificationProvider } from "../context/NotificationContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
 function RootLayoutNav() {
@@ -44,7 +48,14 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <RootLayoutNav />
+        <NotificationProvider>
+          {/* <CallProvider> */}
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <RootLayoutNav />
+              {/* <IncomingCallHandler /> */}
+            </GestureHandlerRootView>
+          {/* </CallProvider> */}
+        </NotificationProvider>
       </AuthProvider>
     </ThemeProvider>
   );

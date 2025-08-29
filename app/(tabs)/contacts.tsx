@@ -82,7 +82,7 @@ export default function ContactsScreen() {
           .filter((contact: any) => contact.phoneNumbers && contact.phoneNumbers.length > 0)
           .map((contact: any) => ({
             name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
-            phoneNumbers: contact.phoneNumbers.map((phone: any) => normalizePhoneNumber(phone.number))
+            phoneNumbers: contact.phoneNumbers.map((phone: any) => phone.number)
           }))
           .filter((contact: any) => contact.phoneNumbers.length > 0);
 
@@ -142,20 +142,20 @@ export default function ContactsScreen() {
 
 
 
-  const normalizePhoneNumber = (phone: string): string => {
-    // Remove all non-numeric characters and ensure it starts with +91
-    const cleaned = phone.replace(/\D/g, '');
-    // console.log("Normalizing phone:", phone, "-> cleaned:", cleaned);
+  // const normalizePhoneNumber = (phone: string): string => {
+  //   // Remove all non-numeric characters and ensure it starts with +91
+  //   const cleaned = phone.replace(/\D/g, '');
+  //   // console.log("Normalizing phone:", phone, "-> cleaned:", cleaned);
     
-    if (cleaned.length === 10) {
-      return `+91${cleaned}`;
-    } else if (cleaned.length === 12 && cleaned.startsWith('91')) {
-      return `+${cleaned}`;
-    } else if (cleaned.length === 13 && cleaned.startsWith('91')) {
-      return `+${cleaned}`;
-    }
-    return phone; // Return as is if can't normalize
-  };
+  //   if (cleaned.length === 10) {
+  //     return `+91${cleaned}`;
+  //   } else if (cleaned.length === 12 && cleaned.startsWith('91')) {
+  //     return `+${cleaned}`;
+  //   } else if (cleaned.length === 13 && cleaned.startsWith('91')) {
+  //     return `+${cleaned}`;
+  //   }
+  //   return phone; // Return as is if can't normalize
+  // };
 
   const findMatchingUsers = async (contacts: { name: string; phoneNumbers: string[] }[]) => {
     try {
@@ -299,7 +299,7 @@ export default function ContactsScreen() {
               {item.phoneNumber.replace('+91', '')}
             </Text>
           </View>
-          <View style={styles.contactStatusRow}>
+          {/* <View style={styles.contactStatusRow}>
             <View style={[
               styles.statusDot, 
               { backgroundColor: item.isOnline ? '#00d4aa' : theme.colors.textTertiary }
@@ -309,7 +309,7 @@ export default function ContactsScreen() {
             }]}>
               {item.isOnline ? 'Online' : 'Last seen recently'}
             </Text>
-          </View>
+          </View> */}
         </View>
         
         <TouchableOpacity 
@@ -340,8 +340,8 @@ export default function ContactsScreen() {
       </Text>
       <Text style={[styles.emptyStateSubtext, { color: theme.colors.textSecondary }]}>
         {!hasContactPermission 
-          ? "Allow access to find friends who are using Awaaz"
-          : "No contacts from your phone are using Awaaz yet"
+          ? "Allow access to find friends who are using Amigo"
+          : "No contacts from your phone are using Amigo yet"
         }
       </Text>
       {!hasContactPermission && (
@@ -387,7 +387,7 @@ export default function ContactsScreen() {
             <View style={styles.headerTextContainer}>
               <Text style={styles.headerTitle}>Contacts</Text>
               <Text style={styles.headerSubtitle}>
-                {contactUsers.length} {contactUsers.length === 1 ? 'friend' : 'friends'} on Awaaz
+                {contactUsers.length} {contactUsers.length === 1 ? 'friend' : 'friends'} on Amigo
               </Text>
             </View>
             <TouchableOpacity 
@@ -636,12 +636,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+    padding: 10,
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.08,
+    // shadowRadius: 8,
+    // elevation: 4,
     borderWidth: 0.5,
     borderColor: 'rgba(0,0,0,0.05)',
   },
@@ -695,7 +695,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contactName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     marginBottom: 4,
   },

@@ -116,7 +116,7 @@ export default function GroupDetailsPage() {
       if (hasContactPermission) {
         fetchAvailableContacts();
       } else {
-        // If no permission, try to get permission and then fetch
+        // If no permission, try to get permission
         checkContactPermission();
       }
     }
@@ -151,7 +151,7 @@ export default function GroupDetailsPage() {
               return {
                 uid: memberId,
                 displayName: userData?.displayName || 'Unknown',
-                isAdmin: groupData.createdBy === memberId,
+                isAdmin: groupData.createdBy === memberId || groupData.admins?.includes(memberId),
                 profileImageUrl: userData?.profileImageUrl,
               };
             }
@@ -161,7 +161,7 @@ export default function GroupDetailsPage() {
           return {
             uid: memberId,
             displayName: 'Unknown',
-            isAdmin: groupData.createdBy === memberId,
+            isAdmin: groupData.createdBy === memberId || groupData.admins?.includes(memberId),
           };
         });
 
@@ -181,16 +181,17 @@ export default function GroupDetailsPage() {
         setHasContactPermission(true);
         await fetchAvailableContacts();
       } else {
-        // If permission is denied and modal is open, try fallback
-        if (showAddMembersModal) {
-          await testFetchUsers();
-        }
+        setHasContactPermission(false);
+        // If permission is denied, show empty state
+        setAvailableContacts([]);
+        setFilteredContacts([]);
       }
     } catch (err) {
-      // If there's an error and modal is open, try fallback
-      if (showAddMembersModal) {
-        await testFetchUsers();
-      }
+      console.error('Error checking contact permission:', err);
+      setHasContactPermission(false);
+      // If there's an error, show empty state
+      setAvailableContacts([]);
+      setFilteredContacts([]);
     }
   };
 
@@ -245,73 +246,22 @@ export default function GroupDetailsPage() {
 
         // Find users in our app who match these phone numbers
         await findMatchingUsers(phoneNumbers);
-        
-        // Check if we found any matching users after a short delay to allow state update
-        setTimeout(async () => {
-          if (availableContacts.length === 0) {
-            await testFetchUsers();
-          }
-        }, 500); // Increased delay to ensure state has time to update
       } else {
-        await testFetchUsers();
+        // No contacts found, show empty state
+        setAvailableContacts([]);
+        setFilteredContacts([]);
       }
     } catch (error) {
-      Alert.alert("Error", "Failed to access contacts. Please check permissions.");
-      // Try fallback even if contacts fail
-      await testFetchUsers();
+      console.error("Error accessing contacts:", error);
+      // Don't fallback to testFetchUsers - show proper error state
+      setAvailableContacts([]);
+      setFilteredContacts([]);
     } finally {
       setLoadingContacts(false);
     }
   };
 
-  // Simple test function to fetch all users directly
-  const testFetchUsers = async () => {
-    try {
-      const usersSnapshot = await firestore.collection('users').get();
-      
-      if (usersSnapshot.size > 0) {
-        const users: ContactUser[] = [];
-        usersSnapshot.forEach(doc => {
-          const docData = doc.data();
-          // Fix: Compare doc.id with current user's uid from context
-          if (doc.id !== userData?.uid && docData.phoneNumber) {
-            users.push({
-              uid: doc.id,
-              firstName: docData.firstName || '',
-              lastName: docData.lastName || '',
-              displayName: docData.displayName || 'Unknown User',
-              phoneNumber: docData.phoneNumber,
-              isOnline: docData.isOnline || false,
-              lastSeen: docData.lastSeen,
-              profileImageUrl: docData.profileImageUrl
-            });
-          }
-        });
-        
-        // Filter out users already in the group (only if group is loaded)
-        let availableUsers = users;
-        if (group && group.members) {
-          availableUsers = users.filter(user => !group.members.includes(user.uid));
-        } else {
-          // If group is not loaded, we'll show all users but mark them as potentially already in group
-          availableUsers = users;
-        }
-        
-        setAvailableContacts(availableUsers);
-        setFilteredContacts(availableUsers);
-        
-        // if (availableUsers.length > 0) {
-        //   Alert.alert('Success', `Found ${availableUsers.length} available users!`);
-        // } else {
-        //   Alert.alert('Test Result', 'No available users found for this group');
-        // }
-      } else {
-        Alert.alert('Test Result', 'No users found in the app');
-      }
-    } catch (error) {
-      Alert.alert('Test Failed', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
+
 
   const findMatchingUsers = async (contacts: { name: string; phoneNumbers: string[] }[]) => {
     try {
@@ -387,33 +337,15 @@ export default function GroupDetailsPage() {
       setAvailableContacts(uniqueUsers);
       setFilteredContacts(uniqueUsers);
       
-      // If no matching users found, trigger fallback
-      if (uniqueUsers.length === 0) {
-        // Will trigger fallback
-      }
-      
     } catch (error) {
-      // If there's an error, try fallback
-      await testFetchUsers();
+      console.error('Error finding matching users:', error);
+      // Don't fallback - show empty state
+      setAvailableContacts([]);
+      setFilteredContacts([]);
     }
   };
 
-  // Simple test function to check if Firebase is working
-  const testFirebaseConnection = async () => {
-    try {
-      const usersSnapshot = await firestore.collection('users').get();
-      
-      // Show first few users
-      const users = usersSnapshot.docs.slice(0, 3).map(doc => ({
-        uid: doc.id,
-        ...doc.data()
-      }));
-      
-      Alert.alert('Firebase Test', `Successfully connected! Found ${usersSnapshot.size} users.`);
-    } catch (error) {
-      Alert.alert('Firebase Test Failed', `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
+
 
   // Image upload function
   const uploadGroupImage = async (imageUri: string): Promise<string> => {
@@ -472,10 +404,10 @@ export default function GroupDetailsPage() {
       setShowAddMembersModal(false);
       setAddingMembers([]);
       setSearchQuery('');
-      Alert.alert('Success', `${addingMembers.length} member(s) added to group successfully!`);
+      // Alert.alert('Success', `${addingMembers.length} member(s) added to group successfully!`);
     } catch (error) {
       console.error('Error adding members:', error);
-      Alert.alert('Error', 'Failed to add members to group');
+      // Alert.alert('Error', 'Failed to add members to group');
     } finally {
       setSaving(false);
     }
@@ -485,15 +417,14 @@ export default function GroupDetailsPage() {
   const refreshContacts = async () => {
     if (hasContactPermission) {
       await fetchAvailableContacts();
-      // If still no contacts, try fetching all users as fallback
-      if (availableContacts.length === 0) {
-        await testFetchUsers();
-      }
+    } else {
+      // Try to get permission and then fetch contacts
+      await checkContactPermission();
     }
   };
 
   const isGroupAdmin = () => {
-    return group?.createdBy === userData?.uid || false;
+    return group?.createdBy === userData?.uid || (userData?.uid && group?.admins?.includes(userData.uid)) || false;
   };
 
   const isGroupCreator = () => {
@@ -522,10 +453,11 @@ export default function GroupDetailsPage() {
                 });
               }
 
-              router.back();
+              // Navigate back to groups page - this will trigger the real-time update
+              router.replace('/(tabs)/groups');
             } catch (error) {
               console.error('Error leaving group:', error);
-              Alert.alert('Error', 'Failed to leave group');
+              // Alert.alert('Error', 'Failed to leave group');
             }
           },
         },
@@ -559,10 +491,11 @@ export default function GroupDetailsPage() {
               // Delete the group
               await firestore.collection('groups').doc(groupId).delete();
 
-              router.back();
+              // Navigate back to groups page - this will trigger the real-time update
+              router.replace('/(tabs)/groups');
             } catch (error) {
               console.error('Error deleting group:', error);
-              Alert.alert('Error', 'Failed to delete group');
+              // Alert.alert('Error', 'Failed to delete group');
             }
           },
         },
@@ -576,16 +509,16 @@ export default function GroupDetailsPage() {
         admins: FieldValue.arrayUnion(memberId),
       });
       fetchGroupMembers();
-      Alert.alert('Success', 'Member promoted to admin');
+      // Alert.alert('Success', 'Member promoted to admin');
     } catch (error) {
       console.error('Error promoting member:', error);
-      Alert.alert('Error', 'Failed to promote member');
+      // Alert.alert('Error', 'Failed to promote member');
     }
   };
 
   const removeAdmin = async (memberId: string) => {
     if (memberId === group?.createdBy) {
-      Alert.alert('Error', 'Cannot remove group creator from admin');
+      // Alert.alert('Error', 'Cannot remove group creator from admin');
       return;
     }
 
@@ -594,16 +527,16 @@ export default function GroupDetailsPage() {
         admins: FieldValue.arrayRemove(memberId),
       });
       fetchGroupMembers();
-      Alert.alert('Success', 'Admin privileges removed');
+      // Alert.alert('Success', 'Admin privileges removed');
     } catch (error) {
       console.error('Error removing admin:', error);
-      Alert.alert('Error', 'Failed to remove admin privileges');
+      // Alert.alert('Error', 'Failed to remove admin privileges');
     }
   };
 
   const removeMember = async (memberId: string) => {
     if (memberId === group?.createdBy) {
-      Alert.alert('Error', 'Cannot remove group creator');
+      // Alert.alert('Error', 'Cannot remove group creator');
       return;
     }
 
@@ -629,10 +562,10 @@ export default function GroupDetailsPage() {
               }
 
               fetchGroupMembers();
-              Alert.alert('Success', 'Member removed from group');
+              // Alert.alert('Success', 'Member removed from group');
             } catch (error) {
               console.error('Error removing member:', error);
-              Alert.alert('Error', 'Failed to remove member');
+              // Alert.alert('Error', 'Failed to remove member');
             }
           },
         },
@@ -642,7 +575,7 @@ export default function GroupDetailsPage() {
 
   const saveGroupChanges = async () => {
     if (!editingName.trim()) {
-      Alert.alert('Error', 'Group name cannot be empty');
+      // Alert.alert('Error', 'Group name cannot be empty');
       return;
     }
 
@@ -655,10 +588,10 @@ export default function GroupDetailsPage() {
 
       setGroup(prev => prev ? { ...prev, name: editingName.trim(), description: editingDescription.trim() } : null);
       setShowEditModal(false);
-      Alert.alert('Success', 'Group details updated successfully');
+      // Alert.alert('Success', 'Group details updated successfully');
     } catch (error) {
       console.error('Error updating group:', error);
-      Alert.alert('Error', 'Failed to update group details');
+      // Alert.alert('Error', 'Failed to update group details');
     } finally {
       setSaving(false);
     }
@@ -688,17 +621,17 @@ export default function GroupDetailsPage() {
 
           // Update local state
           setGroup(prev => prev ? { ...prev, profileImageUrl: imageUrl } : null);
-          Alert.alert('Success', 'Group profile image updated successfully!');
+          // Alert.alert('Success', 'Group profile image updated successfully!');
         } catch (error) {
           console.error('Error updating group image:', error);
-          Alert.alert('Error', 'Failed to update group image');
+          // Alert.alert('Error', 'Failed to update group image');
         } finally {
           setUploadingImage(false);
         }
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image');
+      // Alert.alert('Error', 'Failed to pick image');
     }
   };
 
@@ -876,10 +809,10 @@ export default function GroupDetailsPage() {
             
             <View style={styles.groupInfo}>
               <Text style={[styles.groupName, { color: theme.colors.text }]}>
-                {group.name}
+                {group.name.charAt(0).toUpperCase() + group.name.slice(1)}
               </Text>
-              <Text style={[styles.groupDescription, { color: theme.colors.textSecondary }]}>
-                {group.description}
+              <Text style={[styles.groupDescription, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+                {group.description.charAt(0).toUpperCase() + group.description.slice(1)}
               </Text>
               <View style={styles.groupMeta}>
                 <View style={styles.metaItem}>
@@ -907,7 +840,7 @@ export default function GroupDetailsPage() {
                   style={styles.copyButton}
                   onPress={() => {
                     Clipboard.setString(group.inviteCode || '');
-                    Alert.alert('Success', 'Invite code copied to clipboard!');
+                    // Alert.alert('Success', 'Invite code copied to clipboard!');
                   }}
                 >
                   <Ionicons name="copy" size={16} color="#667eea" />
@@ -921,7 +854,7 @@ export default function GroupDetailsPage() {
             <View style={styles.addMembersContainer}>
               <TouchableOpacity
                 style={styles.addMembersButton}
-                onPress={() => {
+                onPress={() => {[]
                   setShowAddMembersModal(true);
                 }}
                 activeOpacity={0.8}
@@ -1227,41 +1160,6 @@ export default function GroupDetailsPage() {
                     </Text>
                   </TouchableOpacity>
                 )}
-                
-                {/* Debug button to show all users */}
-                {hasContactPermission && filteredContacts.length === 0 && (
-                  <TouchableOpacity
-                    style={[styles.requestPermissionButton, { marginTop: 10 }]}
-                    onPress={testFetchUsers}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.requestPermissionButtonText, { color: theme.colors.primary }]}>
-                      Show All Users (Debug)
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                
-                {/* Test Firebase connection button */}
-                <TouchableOpacity
-                  style={[styles.requestPermissionButton, { marginTop: 10, backgroundColor: '#ff6b6b' }]}
-                  onPress={testFirebaseConnection}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.requestPermissionButtonText, { color: '#ffffff' }]}>
-                    Test Firebase Connection
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Test direct user fetch button */}
-                <TouchableOpacity
-                  style={[styles.requestPermissionButton, { marginTop: 10, backgroundColor: '#4CAF50' }]}
-                  onPress={testFetchUsers}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.requestPermissionButtonText, { color: '#ffffff' }]}>
-                    Test Fetch Users
-                  </Text>
-                </TouchableOpacity>
               </View>
             )}
 
@@ -1344,7 +1242,7 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: '20%',
   },
   backButton: {
     width: 40,
@@ -1390,17 +1288,17 @@ const styles = StyleSheet.create({
   },
   groupImageContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: 12,
   },
   groupImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
   },
   groupImageText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -1419,12 +1317,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   groupName: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     marginBottom: 8,
   },
   groupDescription: {
-    fontSize: 16,
+    fontSize: 12,
     lineHeight: 22,
     marginBottom: 12,
   },
@@ -1438,7 +1336,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   metaText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
   },
 
@@ -1464,7 +1362,7 @@ const styles = StyleSheet.create({
   },
   inviteCode: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#667eea',
     letterSpacing: 2,
@@ -1516,7 +1414,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   memberInfo: {
     flexDirection: 'row',
@@ -1524,8 +1422,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memberAvatar: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1540,7 +1438,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memberName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
   },
