@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -22,7 +22,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-// import CallButton from '../components/CallButton';
+import CallButton from '../components/CallButton';
+import CustomAlert from '../components/CustomAlert';
 import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
 import MediaPicker from '../components/MediaPicker';
@@ -49,10 +50,14 @@ export default function ChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [lastMessageTimestamp, setLastMessageTimestamp] = useState<Date | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingMessage, setUploadingMessage] = useState<string>('');
@@ -84,20 +89,209 @@ export default function ChatPage() {
   // Typing indicator state
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [otherUserOnline, setOtherUserOnline] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
 
-  // Auto-scroll when new messages arrive
-  // useEffect(() => {
-  //   if (messages.length > 0) {
-  //     setTimeout(() => {
-  //       if (flatListRef.current) {
-  //         flatListRef.current.scrollToEnd({ animated: true });
-  //       }
-  //     }, 300);
-  //   }
-  // }, [messages]);
+  const markMessagesAsRead = useCallback(async () => {
+    if (!chatId || !userData?.uid) return;
+
+    try {
+      const messagesRef = firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages');
+
+      const unreadMessages = await messagesRef
+        .where('senderId', '!=', userData.uid)
+        .get();
+
+      const batch = firestore.batch();
+      unreadMessages.forEach((doc) => {
+        const messageData = doc.data();
+        if (!messageData.readBy || !messageData.readBy.includes(userData.uid)) {
+          batch.update(doc.ref, {
+            readBy: FieldValue.arrayUnion(userData.uid),
+            readAt: FieldValue.serverTimestamp(),
+          });
+        }
+      });
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  }, [chatId, userData?.uid]);
+
+  // Auto-scroll to latest message
+  const scrollToLatestMessage = useCallback(() => {
+    // Use multiple timeouts to ensure the message is rendered
+    setTimeout(() => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      }
+    }, 50);
+    
+    // Backup scroll in case the first one doesn't work
+    setTimeout(() => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      }
+    }, 200);
+  }, []);
+
+  // Handle new messages in the main listener
+  const handleNewMessage = useCallback((newMessageData: Message, messageId: string) => {
+    // Mark as read if it's from other user
+    if (newMessageData.senderId !== userData?.uid) {
+      markMessagesAsRead();
+    }
+    
+    // Auto-scroll to new message for both sent and received messages
+    scrollToLatestMessage();
+  }, [userData?.uid, markMessagesAsRead, scrollToLatestMessage]);
+
+  // Load initial messages using real-time listener (like group chat)
+  const loadInitialMessages = useCallback(() => {
+    if (!chatId || !userData?.uid) return null;
+
+    setInitialLoading(true);
+    
+    const messagesRef = firestore
+      .collection('chats')
+      .doc(chatId)
+      .collection('messages')
+      .orderBy('timestamp', 'desc')
+      .limit(20); // Start with 20 messages for instant loading
+
+    const unsubscribe = messagesRef.onSnapshot((snapshot) => {
+      const messageList: Message[] = [];
+      snapshot.forEach((doc) => {
+        const messageData = doc.data() as Message;
+        // Filter out messages that the current user has deleted
+        if (!messageData.deletedFor || !messageData.deletedFor.includes(userData.uid)) {
+          messageList.push({
+            ...messageData,
+            id: doc.id,
+          } as Message);
+        }
+      });
+
+      setMessages(messageList);
+      
+      // Set timestamp for pagination
+      if (messageList.length > 0) {
+        setLastMessageTimestamp(messageList[messageList.length - 1].timestamp?.toDate() || null);
+      }
+      
+      // For initial load, always assume there might be more messages
+      // Only set to false when we actually get an empty result from pagination
+      const hasMore = messageList.length > 0; // If we got any messages, there might be more
+      console.log('Initial load - messageList.length:', messageList.length, 'hasMore:', hasMore);
+      setHasMoreMessages(hasMore);
+      setInitialLoading(false);
+
+      // Auto-scroll to latest message when chat loads
+      if (messageList.length > 0) {
+        scrollToLatestMessage();
+      }
+
+      // Handle new messages for real-time updates
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const newMessageData = change.doc.data() as Message;
+          if (!newMessageData.deletedFor || !newMessageData.deletedFor.includes(userData.uid)) {
+            handleNewMessage(newMessageData, change.doc.id);
+          }
+        }
+      });
+    }, (error) => {
+      console.error('Error loading initial messages:', error);
+      setInitialLoading(false);
+    });
+
+    return unsubscribe;
+  }, [chatId, userData?.uid, handleNewMessage, scrollToLatestMessage]);
+
+  // Load older messages for pagination
+  const loadOlderMessages = useCallback(async () => {
+    console.log('loadOlderMessages called', {
+      chatId: !!chatId,
+      userData: !!userData?.uid,
+      hasMoreMessages,
+      loadingOlderMessages,
+      lastMessageTimestamp: !!lastMessageTimestamp,
+      currentMessageCount: messages.length
+    });
+
+    if (!chatId || !userData?.uid || !hasMoreMessages || loadingOlderMessages || !lastMessageTimestamp) {
+      console.log('loadOlderMessages: Early return due to conditions');
+      return;
+    }
+
+    try {
+      setLoadingOlderMessages(true);
+      console.log('Loading older messages from timestamp:', lastMessageTimestamp);
+      
+      const olderMessagesQuery = await firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .orderBy('timestamp', 'desc')
+        .startAfter(lastMessageTimestamp)
+        .limit(15)
+        .get();
+
+      console.log('Older messages query result:', olderMessagesQuery.size, 'messages');
+
+      if (olderMessagesQuery.empty) {
+        console.log('No more older messages found');
+        setHasMoreMessages(false);
+        setLoadingOlderMessages(false);
+        return;
+      }
+
+      const olderMessages: Message[] = [];
+      olderMessagesQuery.forEach((doc) => {
+        const messageData = doc.data() as Message;
+        if (!messageData.deletedFor || !messageData.deletedFor.includes(userData.uid)) {
+          olderMessages.push({
+            ...messageData,
+            id: doc.id,
+          } as Message);
+        }
+      });
+
+      console.log('Filtered older messages:', olderMessages.length);
+
+      // Append older messages to existing ones
+      setMessages(prevMessages => {
+        const updatedMessages = [...prevMessages, ...olderMessages];
+        console.log('Total messages after loading older:', updatedMessages.length);
+        return updatedMessages;
+      });
+      
+      // Update timestamp for next pagination
+      if (olderMessages.length > 0) {
+        const newTimestamp = olderMessages[olderMessages.length - 1].timestamp?.toDate() || null;
+        console.log('Updated lastMessageTimestamp:', newTimestamp);
+        setLastMessageTimestamp(newTimestamp);
+      }
+      
+      // Set hasMoreMessages based on whether we got a full batch
+      // If we got fewer than 15 messages, there are no more messages
+      const hasMore = olderMessages.length >= 15;
+      console.log('Older messages load - olderMessages.length:', olderMessages.length, 'hasMore:', hasMore);
+      setHasMoreMessages(hasMore);
+      setLoadingOlderMessages(false);
+    } catch (error) {
+      console.error('Error loading older messages:', error);
+      setLoadingOlderMessages(false);
+    }
+  }, [chatId, userData?.uid, hasMoreMessages, loadingOlderMessages, lastMessageTimestamp, messages.length]);
+
+
 
   // Fetch receiver's profile image
   const fetchReceiverProfileImage = useCallback(async () => {
@@ -170,36 +364,6 @@ export default function ChatPage() {
     }
   }, [userData?.uid]);
 
-  const markMessagesAsRead = useCallback(async () => {
-    if (!chatId || !userData?.uid) return;
-
-    try {
-      const messagesRef = firestore
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages');
-
-      const unreadMessages = await messagesRef
-        .where('senderId', '!=', userData.uid)
-        .get();
-
-      const batch = firestore.batch();
-      unreadMessages.forEach((doc) => {
-        const messageData = doc.data();
-        if (!messageData.readBy || !messageData.readBy.includes(userData.uid)) {
-          batch.update(doc.ref, {
-            readBy: FieldValue.arrayUnion(userData.uid),
-            readAt: FieldValue.serverTimestamp(),
-          });
-        }
-      });
-
-      await batch.commit();
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  }, [chatId, userData?.uid]);
-
   // Initialize MediaDownloader and mark messages as read when screen is focused
   useFocusEffect(
     useCallback(() => {
@@ -240,6 +404,7 @@ export default function ChatPage() {
           );
           setOtherUserTyping(!!typingUser);
         }
+        setOtherUserOnline(chatData?.isOnline);
       });
 
     return () => unsubscribeTyping();
@@ -341,30 +506,15 @@ export default function ChatPage() {
 
     initializeChat();
 
-    // Listen to messages
-    const unsubscribe = firestore
-      .collection('chats')
-      .doc(chatId)
-      .collection('messages')
-      .orderBy('timestamp', 'desc')
-      .onSnapshot((snapshot) => {
-        const messageList: Message[] = [];
-        snapshot.forEach((doc) => {
-          const messageData = doc.data() as Message;
+    // Load initial messages with real-time updates
+    const unsubscribeInitialMessages = loadInitialMessages();
 
-          // Filter out messages that the current user has deleted
-          if (!messageData.deletedFor || !messageData.deletedFor.includes(userData.uid)) {
-            messageList.push({
-              ...messageData,
-              id: doc.id,
-            } as Message);
-          }
-        });
-        setMessages(messageList);
-      });
-
-    return () => unsubscribe();
-  }, [userData?.uid, userId, userData?.displayName, userName]);
+    return () => {
+      if (unsubscribeInitialMessages) {
+        unsubscribeInitialMessages();
+      }
+    };
+      }, [userData?.uid, userId, userData?.displayName, userName, loadInitialMessages]);
 
   const uploadMediaToStorage = async (mediaFile: MediaFile): Promise<string> => {
     try {
@@ -477,6 +627,9 @@ export default function ChatPage() {
 
       await Promise.all(messagePromises);
 
+      // Auto-scroll to show the new media messages
+      scrollToLatestMessage();
+
       // Update chat metadata with the last media message
       const lastMedia = uploadedMedia[uploadedMedia.length - 1];
       let mediaText = lastMedia.messageType === 'image' ? '📷 Image' :
@@ -515,12 +668,7 @@ export default function ChatPage() {
         // Don't fail the media sending if notification fails
       }
 
-      // Scroll to bottom after sending
-      // setTimeout(() => {
-      //   if (flatListRef.current) {
-      //     flatListRef.current.scrollToEnd({ animated: true });
-      //   }
-      // }, 100);
+
     } catch (error) {
       console.error('Error sending media messages:', error);
       showCustomAlert('Error', 'Failed to send media messages', 'error');
@@ -534,7 +682,7 @@ export default function ChatPage() {
   const sendVoiceMessage = async (voiceNote: VoiceNote) => {
     if (!userData?.uid || !chatId || !userId || !userName) return;
 
-    setUploadingMedia(true);
+    setUploadingVoice(true);
     setUploadProgress(0);
     setUploadingMessage('Uploading voice note...');
 
@@ -579,6 +727,9 @@ export default function ChatPage() {
           readBy: [],
         });
 
+      // Auto-scroll to show the new voice message
+      scrollToLatestMessage();
+
       // Update chat metadata
       await firestore
         .collection('chats')
@@ -607,17 +758,12 @@ export default function ChatPage() {
         // Don't fail the voice note sending if notification fails
       }
 
-      // Scroll to bottom after sending
-      // setTimeout(() => {
-      //   if (flatListRef.current) {
-      //     flatListRef.current.scrollToEnd({ animated: true });
-      //   }
-      // }, 100);
+
     } catch (error) {
       console.error('Error sending voice message:', error);
       showCustomAlert('Error', 'Failed to send voice message', 'error');
     } finally {
-      setUploadingMedia(false);
+      setUploadingVoice(false);
       setUploadProgress(0);
       setUploadingMessage('');
     }
@@ -964,7 +1110,6 @@ export default function ChatPage() {
 
     const messageText = newMessage.trim();
     setNewMessage('');
-    setLoading(true);
 
     try {
       const messageData: any = {
@@ -999,6 +1144,9 @@ export default function ChatPage() {
         .collection('messages')
         .add(messageData);
 
+      // Auto-scroll to show the new message
+      scrollToLatestMessage();
+
       // Update chat metadata
       await firestore
         .collection('chats')
@@ -1027,18 +1175,11 @@ export default function ChatPage() {
         // Don't fail the message sending if notification fails
       }
 
-      // Scroll to bottom after sending
-      // setTimeout(() => {
-      //   if (flatListRef.current) {
-      //     flatListRef.current.scrollToEnd({ animated: true });
-      //   }
-      // }, 100);
+
     } catch (error) {
       console.error('Error sending message:', error);
       showCustomAlert('Error', 'Failed to send message', 'error');
       setNewMessage(messageText); // Restore message on error
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1101,7 +1242,8 @@ export default function ChatPage() {
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  // Memoized row component to avoid re-rendering while typing
+  const MessageRow = memo(({ item }: { item: Message }) => {
     const isOwnMessage = item.senderId === userData?.uid;
     const isStarred = item.starredBy?.includes(userData?.uid || '') || false;
     const isPinned = item.isPinned || false;
@@ -1251,9 +1393,6 @@ export default function ChatPage() {
                           size={16}
                           color="#2196F3" // Blue double tick for read messages
                         />
-                        {/* <Text style={[styles.readStatus, { color: '#2196F3' }]}>
-                        Read
-                      </Text> */}
                       </View>
                     ) : item.timestamp ? (
                       <View style={styles.readReceipts}>
@@ -1262,16 +1401,14 @@ export default function ChatPage() {
                           size={16}
                           color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
                         />
-                        {/* <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
-                        Delivered
-                      </Text> */}
                       </View>
                     ) : (
                       <View style={styles.readReceipts}>
-                        <ActivityIndicator size={12} color="rgba(255,255,255,0.7)" />
-                        <Text style={[styles.readStatus, { color: 'rgba(255,255,255,0.7)' }]}>
-                          Sending...
-                        </Text>
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
+                        />
                       </View>
                     )}
                   </View>
@@ -1283,7 +1420,20 @@ export default function ChatPage() {
         </TouchableOpacity>
       </View>
     );
-  };
+  },
+  (prevProps, nextProps) => prevProps.item.id === nextProps.item.id
+    && prevProps.item.messageType === nextProps.item.messageType
+    && prevProps.item.mediaUrl === nextProps.item.mediaUrl
+    && (prevProps.item.text || '') === (nextProps.item.text || '')
+    && (!!prevProps.item.isPinned) === (!!nextProps.item.isPinned)
+    && (Array.isArray(prevProps.item.starredBy) ? prevProps.item.starredBy.length : 0) === (Array.isArray(nextProps.item.starredBy) ? nextProps.item.starredBy.length : 0)
+    && (Array.isArray(prevProps.item.readBy) ? prevProps.item.readBy.length : 0) === (Array.isArray(nextProps.item.readBy) ? nextProps.item.readBy.length : 0)
+  );
+  MessageRow.displayName = 'MessageRow';
+
+  const renderMessage = useCallback(({ item }: { item: Message }) => {
+    return <MessageRow item={item} />;
+  }, []);
 
   if (!userData?.uid || !userId) {
     return (
@@ -1355,19 +1505,19 @@ export default function ChatPage() {
                 <View style={styles.headerTextContainer}>
                   <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
                   <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>
-                    {otherUserTyping ? 'typing...' : (userPhone ? `${userPhone}` : 'Online')}
+                    {otherUserTyping ? 'typing...' : otherUserOnline ? 'Online' : 'Offline'}
                   </Text>
                 </View>
               </View>
               
               {/* Call Button */}
-              {/* <CallButton
+              <CallButton
                 receiverId={userId}
                 receiverName={userName}
                 receiverPhone={userPhone}
                 size="medium"
                 variant="outline"
-              /> */}
+              />
             </View>
           </LinearGradient>
         </View>
@@ -1415,23 +1565,75 @@ export default function ChatPage() {
         <KeyboardAvoidingView
           style={styles.chatBody}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : -30}
         >
           <FlatList
-            ref={flatListRef}
-            data={messages}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id}
-            style={styles.modernMessagesList}
-            contentContainerStyle={styles.modernMessagesContent}
-            showsVerticalScrollIndicator={false}
-            inverted
-
-          />
+              ref={flatListRef}
+              data={messages}
+              renderItem={renderMessage}
+              keyExtractor={(item, index) => `${item.id}_${index}`}
+              style={styles.modernMessagesList}
+              contentContainerStyle={styles.modernMessagesContent}
+              showsVerticalScrollIndicator={false}
+              inverted
+              removeClippedSubviews={false}
+              initialNumToRender={20} // Increased from 12 to 20 for better initial render
+              maxToRenderPerBatch={15} // Increased from 8 to 15 for smoother scrolling
+              updateCellsBatchingPeriod={50}
+              windowSize={10} // Increased from 7 to 10 for better performance
+              keyboardShouldPersistTaps="handled"
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              onEndReached={() => {
+                console.log('onEndReached triggered - attempting to load older messages');
+                loadOlderMessages();
+              }}
+              onEndReachedThreshold={0.1} // Reduced threshold for better pagination trigger
+              onScroll={(event) => {
+                // Alternative approach: detect when user scrolls to bottom of inverted list
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 50;
+                if (isAtBottom && hasMoreMessages && !loadingOlderMessages) {
+                  console.log('Scrolled to bottom - loading older messages');
+                  loadOlderMessages();
+                }
+              }}
+              ListFooterComponent={hasMoreMessages && loadingOlderMessages ? (
+                <View style={styles.loadingOlderMessages}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={[styles.loadingOlderMessagesText, { color: theme.colors.textSecondary }]}>
+                    Loading older messages...
+                  </Text>
+                </View>
+              ) : hasMoreMessages ? (
+                <TouchableOpacity 
+                  style={styles.loadingOlderMessages}
+                  onPress={loadOlderMessages}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.loadingOlderMessagesText, { color: theme.colors.primary }]}>
+                    Scroll to load more messages
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              ListEmptyComponent={initialLoading ? (
+                <View style={styles.initialLoadingContainer}>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                  <Text style={[styles.initialLoadingText, { color: theme.colors.textSecondary }]}>
+                    Loading messages...
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.emptyMessagesContainer}>
+                  <Text style={[styles.emptyMessagesText, { color: theme.colors.textSecondary }]}>
+                    No messages yet. Start the conversation!
+                  </Text>
+                </View>
+              )}
+            />
 
           {/* Typing Indicator */}
           {otherUserTyping && (
-            <View style={[styles.typingIndicator, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.typingIndicator]}>
               <View style={styles.typingContent}>
                 <View style={styles.typingAvatar}>
                   <LinearGradient
@@ -1457,7 +1659,7 @@ export default function ChatPage() {
           )}
 
           {/* Uploading Media Indicator - Integrated in Input Container */}
-          {uploadingMedia && (
+          {(uploadingMedia || uploadingVoice) && (
             <View style={[styles.uploadingIndicator, { backgroundColor: theme.colors.surface }]}>
               <View style={styles.uploadingContent}>
                 <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -1534,36 +1736,26 @@ export default function ChatPage() {
               <TouchableOpacity
                 style={styles.mediaButton}
                 onPress={() => setShowMediaPicker(true)}
-                disabled={uploadingMedia}
+                disabled={uploadingMedia || uploadingVoice}
               >
                 <Ionicons
                   name="add-circle"
                   size={24}
-                  color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                  color={(uploadingMedia || uploadingVoice) ? theme.colors.textSecondary : theme.colors.primary}
                 />
-                {uploadingMedia && (
-                  <View style={styles.mediaButtonLoading}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  </View>
-                )}
               </TouchableOpacity>
 
               {/* Voice Button */}
               <TouchableOpacity
                 style={styles.voiceButton}
                 onPress={() => setShowVoiceRecorder(true)}
-                disabled={uploadingMedia}
+                disabled={uploadingMedia || uploadingVoice}
               >
                 <Ionicons
                   name="mic"
                   size={24}
-                  color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                  color={(uploadingMedia || uploadingVoice) ? theme.colors.textSecondary : theme.colors.primary}
                 />
-                {uploadingMedia && (
-                  <View style={styles.mediaButtonLoading}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  </View>
-                )}
               </TouchableOpacity>
 
               <TextInput
@@ -1589,7 +1781,7 @@ export default function ChatPage() {
                   { opacity: newMessage.trim() ? 1 : 0.6 }
                 ]}
                 onPress={sendMessage}
-                disabled={!newMessage.trim() || loading || uploadingMedia}
+                disabled={!newMessage.trim() || uploadingMedia || uploadingVoice}
                 activeOpacity={0.8}
               >
                 <LinearGradient
@@ -1599,7 +1791,7 @@ export default function ChatPage() {
                   end={{ x: 1, y: 1 }}
                 >
                   <Ionicons
-                    name={loading ? "hourglass" : "send"}
+                    name={"send"}
                     size={18}
                     color={theme.colors.onPrimary}
                   />
@@ -1623,7 +1815,7 @@ export default function ChatPage() {
           isVisible={showVoiceRecorder}
           onClose={() => setShowVoiceRecorder(false)}
           onVoiceRecorded={sendVoiceMessage}
-          isUploading={uploadingMedia}
+          isUploading={false}
         />
 
         {/* Full Screen Media Modal */}
@@ -1934,81 +2126,15 @@ export default function ChatPage() {
         </Modal>
 
         {/* Custom Alert Modal */}
-        <Modal
+        <CustomAlert
           visible={customAlert.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={hideCustomAlert}
-        >
-          <View style={styles.customAlertOverlay}>
-            <View style={[styles.customAlertContainer, { backgroundColor: theme.colors.surface }]}>
-              {/* Alert Icon */}
-              <View style={[
-                styles.alertIconContainer,
-                {
-                  backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
-                    customAlert.type === 'error' ? '#F44336' :
-                      customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
-                }
-              ]}>
-                <Ionicons
-                  name={
-                    customAlert.type === 'success' ? 'checkmark-circle' :
-                      customAlert.type === 'error' ? 'close-circle' :
-                        customAlert.type === 'warning' ? 'warning' : 'information-circle'
-                  }
-                  size={32}
-                  color="#ffffff"
-                />
-              </View>
-
-              {/* Alert Title */}
-              <Text style={[styles.alertTitle, { color: theme.colors.text }]}>
-                {customAlert.title}
-              </Text>
-
-              {/* Alert Message */}
-              <Text style={[styles.alertMessage, { color: theme.colors.textSecondary }]}>
-                {customAlert.message}
-              </Text>
-
-              {/* Action Buttons */}
-              <View style={styles.alertButtonsContainer}>
-                {customAlert.type === 'warning' && customAlert.onConfirm && (
-                  <TouchableOpacity
-                    style={[styles.alertButton, styles.alertCancelButton]}
-                    onPress={hideCustomAlert}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.alertCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity
-                  style={[
-                    styles.alertButton,
-                    {
-                      backgroundColor: customAlert.type === 'success' ? '#4CAF50' :
-                        customAlert.type === 'error' ? '#F44336' :
-                          customAlert.type === 'warning' ? '#FF9800' : '#2196F3'
-                    }
-                  ]}
-                  onPress={() => {
-                    if (customAlert.onConfirm) {
-                      customAlert.onConfirm();
-                    }
-                    hideCustomAlert();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.alertButtonText}>
-                    {customAlert.type === 'warning' && customAlert.onConfirm ? 'Delete' : 'OK'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+          title={customAlert.title}
+          message={customAlert.message}
+          type={customAlert.type}
+          onConfirm={customAlert.onConfirm}
+          onClose={hideCustomAlert}
+          showCancelButton={customAlert.type === 'warning' && !!customAlert.onConfirm}
+        />
 
         {/* Contacts List Modal for Forwarding */}
         <Modal
@@ -2049,7 +2175,7 @@ export default function ChatPage() {
 
               <FlatList
                 data={contacts}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item, index) => `${item.id}_${index}`}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[styles.contactItem, { borderBottomColor: theme.colors.border }]}
@@ -2316,7 +2442,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderTopWidth: 0,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 30,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -2730,87 +2856,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
 
-  // Custom Alert Styles
-  customAlertOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  customAlertContainer: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  alertIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  alertTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 12,
-    lineHeight: 28,
-  },
-  alertMessage: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
-    paddingHorizontal: 8,
-  },
-  alertButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  alertButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 25,
-    minWidth: 120,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  alertCancelButton: {
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.2)',
-  },
-  alertButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  alertCancelButtonText: {
-    color: '#666666',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+
 
   // Action Popup Styles
   actionPopupOverlay: {
@@ -2901,6 +2947,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '400',
     opacity: 0.7,
+  },
+
+  // Initial loading indicator
+  initialLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  initialLoadingText: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 16,
+  },
+
+  // Loading older messages indicator
+  loadingOlderMessages: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
+  loadingOlderMessagesText: {
+    fontSize: 14,
+    fontWeight: '400',
+    marginLeft: 12,
+  },
+
+  // Empty messages container
+  emptyMessagesContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyMessagesText: {
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 24,
   },
 
   // Typing indicator styles

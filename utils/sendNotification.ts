@@ -5,13 +5,13 @@ import { firebaseFirestore } from '../firebaseConfig';
 const CONFIG = {
   // For local development with emulator/real device
   // Use your computer's actual IP address (not localhost)
-  SERVER_URL: 'http://172.24.132.187:3000', // UPDATE THIS IP ADDRESS
+  SERVER_URL: 'https://amigo-admin-eight.vercel.app', // UPDATE THIS IP ADDRESS
   
   // Alternative URLs for different scenarios:
   // LOCALHOST: 'http://localhost:3000',           // Only works on same device
   // EMULATOR: 'http://10.0.2.2:3000',            // Android emulator to host
-  // REAL_DEVICE: 'http://192.168.1.100:3000',    // Real device to host (use your IP)
-  // PRODUCTION: 'https://yourdomain.com',         // Production server
+  // REAL_DEVICE: 'http://172.24.132.187:3000',   // Real device to host (use your IP)
+  // PRODUCTION: 'https://amigo-admin-eight.vercel.app', // Production server
 };
 
 interface NotificationData {
@@ -118,6 +118,54 @@ export const testServerConnectivity = async (): Promise<boolean> => {
 };
 
 /**
+ * Test notification endpoint specifically
+ */
+export const testNotificationEndpoint = async (): Promise<boolean> => {
+  try {
+    const serverUrl = CONFIG.SERVER_URL + '/api/notifications/send';
+    console.log('🧪 Testing notification endpoint:', serverUrl);
+    
+    // Send a minimal test payload
+    const testPayload = {
+      to: 'test-token',
+      notification: {
+        title: 'Test',
+        body: 'Test notification',
+      },
+      data: {
+        type: 'test',
+        timestamp: new Date().toISOString(),
+      },
+    };
+    
+    const response = await fetch(serverUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(testPayload),
+    });
+    
+    console.log('📊 Response status:', response.status);
+    console.log('📊 Response headers:', Object.fromEntries(response.headers.entries()));
+    
+    const responseText = await response.text();
+    console.log('📊 Response body:', responseText);
+    
+    if (response.ok) {
+      console.log('✅ Notification endpoint is working!');
+      return true;
+    } else {
+      console.log('❌ Notification endpoint returned error:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.log('❌ Notification endpoint test failed:', error);
+    return false;
+  }
+};
+
+/**
  * Get the current user's FCM token
  */
 export const getCurrentUserFCMToken = async (): Promise<string | null> => {
@@ -147,9 +195,6 @@ export const getCurrentUserFCMToken = async (): Promise<string | null> => {
  */
 const sendFCMNotification = async (fcmToken: string, notificationData: NotificationData) => {
   try {
-    // For now, we'll use a simple approach that logs the notification
-    // In production, you would send this to your server endpoint
-    
     const notificationPayload = {
       to: fcmToken,
       notification: {
@@ -169,14 +214,11 @@ const sendFCMNotification = async (fcmToken: string, notificationData: Notificat
 
     console.log('FCM Notification payload:', notificationPayload);
 
-    // Option 1: Send to your amigo-admin server endpoint (recommended)
+    // Send to your live amigo-admin server endpoint
     try {
-      // IMPORTANT: Update this URL to your actual server IP address
-      // For local development with emulator/real device, use your computer's IP address
-      // Example: 'http://192.168.1.100:3000/api/notifications/send'
       const serverUrl = CONFIG.SERVER_URL + '/api/notifications/send';
       
-      console.log('🌐 Attempting to send notification to:', serverUrl);
+      console.log('🌐 Sending notification to live backend:', serverUrl);
       console.log('📱 FCM Token:', fcmToken);
       console.log('📋 Payload:', notificationPayload);
       
@@ -185,7 +227,7 @@ const sendFCMNotification = async (fcmToken: string, notificationData: Notificat
       const currentUser = firebaseAuth.currentUser;
       
       if (!currentUser) {
-        console.log('❌ No authenticated user, falling back to logging');
+        console.log('❌ No authenticated user, cannot send notification');
         throw new Error('No authenticated user');
       }
 
@@ -203,24 +245,31 @@ const sendFCMNotification = async (fcmToken: string, notificationData: Notificat
 
       if (response.ok) {
         const result = await response.json();
-        console.log('✅ FCM notification sent successfully via amigo-admin server:', result);
+        console.log('✅ FCM notification sent successfully via live backend:', result);
         return;
       } else {
-        const error = await response.json();
-        console.log('❌ Server returned error, falling back to logging:', error);
-        console.log('📊 Response status:', response.status);
+        console.log('❌ Live backend returned error status:', response.status);
+        console.log('📊 Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        // Try to get the response as text first to see what's actually returned
+        const responseText = await response.text();
+        console.log('📊 Raw response body:', responseText);
+        
+        let error;
+        try {
+          error = JSON.parse(responseText);
+          console.log('❌ Parsed error:', error);
+        } catch (parseError) {
+          console.log('❌ Response is not valid JSON, backend might be down or returning HTML');
+          console.log('❌ Parse error:', parseError);
+          throw new Error(`Backend returned invalid response (status: ${response.status}): ${responseText.substring(0, 100)}...`);
+        }
+        
+        throw new Error(`Backend error: ${error.error || response.statusText}`);
       }
     } catch (serverError) {
-      console.log('❌ Server call failed, falling back to logging:', serverError);
-      console.log('🔍 Error details:', serverError);
-    }
-
-    // Option 2: Fallback - Log the notification (current behavior)
-    console.log('FCM notification logged (server implementation required for actual sending)');
-    
-    // You can also test with local notifications for development
-    if (__DEV__) {
-      console.log('Development mode: Would send FCM notification to:', fcmToken);
+      console.log('❌ Failed to send to live backend:', serverError);
+      throw serverError;
     }
     
   } catch (error) {
@@ -272,23 +321,51 @@ export const sendMessageNotification = async (
         }
     }
 
-    await sendPushNotification({
-      userId,
-      title,
-      body,
-      data: { 
-        senderName, 
-        message, 
-        messageType,
-        senderId: (await firebaseFirestore.collection('users').where('displayName', '==', senderName).limit(1).get()).docs[0]?.id || null
-      },
-      chatId,
-      type: 'message',
-    });
-    
-    console.log(`Message notification sent to ${userId} from ${senderName}`);
+    console.log('📋 Notification Title:', title);
+    console.log('📋 Notification Body:', body);
+
+    // Get the user's FCM token from Firestore
+    console.log('🔍 Looking up FCM token for user:', userId);
+    const userDoc = await firebaseFirestore
+      .collection('users')
+      .doc(userId)
+      .get();
+
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      
+      console.log('👤 User found:', userData?.displayName || 'Unknown');
+      console.log('🔑 FCM Token exists:', !!fcmToken);
+      console.log('🔑 FCM Token length:', fcmToken ? fcmToken.length : 0);
+
+      if (fcmToken) {
+        // Send notification directly to live backend
+        console.log('🚀 Sending notification to live backend...');
+        await sendFCMNotification(fcmToken, {
+          userId,
+          title,
+          body,
+          data: { 
+            senderName, 
+            message, 
+            messageType,
+            senderId: (await firebaseFirestore.collection('users').where('displayName', '==', senderName).limit(1).get()).docs[0]?.id || null
+          },
+          chatId,
+          type: 'message',
+        });
+        
+        console.log('✅ Message notification sent successfully to', userId, 'from', senderName);
+      } else {
+        console.log('❌ User has no FCM token, cannot send notification');
+        console.log('📊 User data keys:', Object.keys(userData || {}));
+      }
+    } else {
+      console.log('❌ User not found in Firestore, cannot send notification');
+    }
   } catch (error) {
-    console.error('Error sending message notification:', error);
+    console.error('❌ Error sending message notification:', error);
     // Don't throw error here to avoid breaking the chat functionality
   }
 };

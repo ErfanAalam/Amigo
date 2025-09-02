@@ -16,6 +16,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import CustomAlert from '../../components/CustomAlert';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { FieldValue, firebaseFirestore as firestore } from '../../firebaseConfig';
@@ -55,6 +56,20 @@ export default function Home() {
   const [pinnedChats, setPinnedChats] = useState<ChatUser[]>([]);
   const [unpinnedChats, setUnpinnedChats] = useState<ChatUser[]>([]);
   const [showActionMenu, setShowActionMenu] = useState(false);
+
+  // Custom Alert state
+  const [customAlert, setCustomAlert] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'info' | 'warning';
+    onConfirm?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
 
 
 
@@ -208,7 +223,7 @@ export default function Home() {
       setUnpinnedChats(unpinned);
     } catch (error) {
       console.error('Error fetching chat history:', error);
-      Alert.alert('Error', 'Failed to load chat history');
+      showCustomAlert('Error', 'Failed to load chat history', 'error');
     } finally {
       setLoading(false);
     }
@@ -559,6 +574,26 @@ export default function Home() {
     }
   }, [userData?.uid, fetchChatHistory]);
 
+  // Custom Alert functions
+  const showCustomAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning', onConfirm?: () => void) => {
+    setCustomAlert({
+      visible: true,
+      title,
+      message,
+      type,
+      onConfirm,
+    });
+  };
+
+  const hideCustomAlert = () => {
+    setCustomAlert({
+      visible: false,
+      title: '',
+      message: '',
+      type: 'info',
+    });
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchChatHistory();
@@ -634,7 +669,7 @@ export default function Home() {
 
       // Check if trying to pin more than 3 chats
       if (newPinStatus && pinnedChats.length >= 3) {
-        Alert.alert('Pin Limit Reached', 'You can only pin a maximum of 3 chats at a time.');
+        showCustomAlert('Pin Limit Reached', 'You can only pin a maximum of 3 chats at a time.', 'warning');
         return;
       }
 
@@ -655,7 +690,7 @@ export default function Home() {
 
     } catch (error) {
       console.error('Error toggling pin status:', error);
-      Alert.alert('Error', 'Failed to update pin status');
+      showCustomAlert('Error', 'Failed to update pin status', 'error');
     }
   };
 
@@ -679,7 +714,7 @@ export default function Home() {
 
     } catch (error) {
       console.error('Error toggling mute status:', error);
-      Alert.alert('Error', 'Failed to update mute status');
+      showCustomAlert('Error', 'Failed to update mute status', 'error');
     }
   };
 
@@ -703,22 +738,18 @@ export default function Home() {
 
     } catch (error) {
       console.error('Error toggling favorite status:', error);
-      Alert.alert('Error', 'Failed to update favorite status');
+      showCustomAlert('Error', 'Failed to update favorite status', 'error');
     }
   };
 
   const deleteChat = async (chatUser: ChatUser) => {
     if (!chatUser.chatId || !userData?.uid) return;
 
-    Alert.alert(
+    showCustomAlert(
       'Delete Chat',
       `Are you sure you want to delete your chat with ${chatUser.name}? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
+      'warning',
+      async () => {
             try {
               // Mark chat as deleted for the current user (soft delete)
               await firestore.collection('chats').doc(chatUser.chatId).update({
@@ -761,24 +792,18 @@ export default function Home() {
               console.error('Error deleting chat:', error);
               // Alert.alert('Error', 'Failed to delete chat');
             }
-          },
-        },
-      ]
+      }
     );
   };
 
   const restoreChat = async (chatUser: ChatUser) => {
     if (!chatUser.chatId || !userData?.uid) return;
 
-    Alert.alert(
+    showCustomAlert(
       'Restore Chat',
       `Are you sure you want to restore your chat with ${chatUser.name}? This will restore all deleted messages.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Restore',
-          style: 'default',
-          onPress: async () => {
+      'warning',
+      async () => {
             try {
               // Mark chat as not deleted for the current user (restore)
               await firestore.collection('chats').doc(chatUser.chatId).update({
@@ -809,11 +834,9 @@ export default function Home() {
               // Alert.alert('Success', `Chat with ${chatUser.name} restored successfully!`);
             } catch (error) {
               console.error('Error restoring chat:', error);
-              Alert.alert('Error', 'Failed to restore chat');
+              showCustomAlert('Error', 'Failed to restore chat', 'error');
             }
-          },
-        },
-      ]
+      }
     );
   };
 
@@ -1582,6 +1605,17 @@ export default function Home() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Custom Alert */}
+      <CustomAlert
+        visible={customAlert.visible}
+        title={customAlert.title}
+        message={customAlert.message}
+        type={customAlert.type}
+        onConfirm={customAlert.onConfirm}
+        onClose={hideCustomAlert}
+        showCancelButton={customAlert.type === 'warning' && !!customAlert.onConfirm}
+      />
     </View>
   );
 }

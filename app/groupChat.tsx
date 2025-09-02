@@ -3,7 +3,7 @@ import storage from '@react-native-firebase/storage';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
     // ActionSheetIOS,
     ActivityIndicator,
@@ -25,6 +25,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import CustomAlert from '../components/CustomAlert';
 import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
 import MediaPicker from '../components/MediaPicker';
@@ -75,6 +76,7 @@ export default function GroupChatPage() {
     const [group, setGroup] = useState<Group | null>(null);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
     const [uploadingMedia, setUploadingMedia] = useState(false);
+    const [uploadingVoice, setUploadingVoice] = useState(false);
     const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingDuration, setRecordingDuration] = useState(0);
@@ -402,7 +404,7 @@ export default function GroupChatPage() {
             }, 1000);
             setRecordingTimer(timer);
 
-            showCustomAlert('Recording', 'Voice recording started...', 'info');
+            // showCustomAlert('Recording', 'Voice recording started...', 'info');
         } catch (error) {
             console.error('Error starting recording:', error);
             showCustomAlert('Error', 'Failed to start recording', 'error');
@@ -497,7 +499,7 @@ export default function GroupChatPage() {
             return;
         }
 
-        setUploadingMedia(true);
+        setUploadingVoice(true);
         setUploadProgress(0);
         setUploadingMessage('Uploading voice note...');
 
@@ -578,7 +580,7 @@ export default function GroupChatPage() {
             console.error('Error sending voice message:', error);
             showCustomAlert('Error', 'Failed to send voice message', 'error');
         } finally {
-            setUploadingMedia(false);
+            setUploadingVoice(false);
             setUploadProgress(0);
             setUploadingMessage('');
         }
@@ -845,7 +847,7 @@ export default function GroupChatPage() {
 
             setReplyingTo(null);
             setShowMediaPicker(false);
-            showCustomAlert('Success', 'Media sent successfully!', 'success');
+            // showCustomAlert('Success', 'Media sent successfully!', 'success');
 
         } catch (error: any) {
             console.error('=== Error in sendMediaMessage ===');
@@ -1060,7 +1062,7 @@ export default function GroupChatPage() {
         return gradients[index];
     };
 
-    const renderMessage = ({ item }: { item: Message }) => {
+    const MessageRow = memo(({ item }: { item: Message }) => {
         const isOwnMessage = item.senderId === userData?.uid;
         const isStarred = item.starredBy?.includes(userData?.uid || '') || false;
         const isPinned = item.isPinned || false;
@@ -1197,7 +1199,13 @@ export default function GroupChatPage() {
                                     {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], {
                                         hour: '2-digit',
                                         minute: '2-digit'
-                                    }) : '--:--'}
+                                    }) :
+                                        <Ionicons
+                                            name="checkmark"
+                                            size={16}
+                                            color="rgba(255,255,255,0.7)" // Single white tick for delivered but unread messages
+                                        />
+                                    }
                                 </Text>
                             </View>
 
@@ -1207,7 +1215,19 @@ export default function GroupChatPage() {
                 </TouchableOpacity>
             </View>
         );
-    };
+    }, (prevProps, nextProps) => prevProps.item.id === nextProps.item.id
+        && prevProps.item.messageType === nextProps.item.messageType
+        && prevProps.item.mediaUrl === nextProps.item.mediaUrl
+        && (prevProps.item.text || '') === (nextProps.item.text || '')
+        && (!!prevProps.item.isPinned) === (!!nextProps.item.isPinned)
+        && (Array.isArray(prevProps.item.starredBy) ? prevProps.item.starredBy.length : 0) === (Array.isArray(nextProps.item.starredBy) ? nextProps.item.starredBy.length : 0)
+        && (Array.isArray(prevProps.item.readBy) ? prevProps.item.readBy.length : 0) === (Array.isArray(nextProps.item.readBy) ? nextProps.item.readBy.length : 0)
+    );
+    MessageRow.displayName = 'MessageRow';
+
+    const renderMessage = useCallback(({ item }: { item: Message }) => {
+        return <MessageRow item={item} />;
+    }, []);
 
     if (!userData?.uid || !groupId) {
         return (
@@ -1308,7 +1328,7 @@ export default function GroupChatPage() {
                 <KeyboardAvoidingView
                     style={styles.chatBody}
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    keyboardVerticalOffset={0}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : -30}
                 >
                     <FlatList
                         ref={flatListRef}
@@ -1352,7 +1372,7 @@ export default function GroupChatPage() {
                     )}
 
                     {/* Uploading Media Indicator - Integrated in Input Container */}
-                    {uploadingMedia && (
+                    {(uploadingMedia || uploadingVoice) && (
                         <View style={[styles.uploadingIndicator, { backgroundColor: 'transparent' }]}>
                             <View style={styles.uploadingContent}>
                                 <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -1405,36 +1425,26 @@ export default function GroupChatPage() {
                             <TouchableOpacity
                                 style={styles.mediaButton}
                                 onPress={() => setShowMediaPicker(true)}
-                                disabled={uploadingMedia || !canSendMessage}
+                                disabled={uploadingMedia || uploadingVoice || !canSendMessage}
                             >
                                 <Ionicons
                                     name="add-circle"
                                     size={24}
-                                    color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                                    color={(uploadingMedia || uploadingVoice) ? theme.colors.textSecondary : theme.colors.primary}
                                 />
-                                {uploadingMedia && (
-                                    <View style={styles.mediaButtonLoading}>
-                                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                                    </View>
-                                )}
                             </TouchableOpacity>
 
                             {/* Voice Button */}
                             <TouchableOpacity
                                 style={styles.voiceButton}
                                 onPress={() => setShowVoiceRecorder(true)}
-                                disabled={uploadingMedia || !canSendMessage}
+                                disabled={uploadingMedia || uploadingVoice || !canSendMessage}
                             >
                                 <Ionicons
                                     name="mic"
                                     size={24}
-                                    color={uploadingMedia ? theme.colors.textSecondary : theme.colors.primary}
+                                    color={(uploadingMedia || uploadingVoice) ? theme.colors.textSecondary : theme.colors.primary}
                                 />
-                                {uploadingMedia && (
-                                    <View style={styles.mediaButtonLoading}>
-                                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                                    </View>
-                                )}
                             </TouchableOpacity>
 
                             <TextInput
@@ -1462,7 +1472,7 @@ export default function GroupChatPage() {
                                     { opacity: newMessage.trim() && canSendMessage ? 1 : 0.6 }
                                 ]}
                                 onPress={sendMessage}
-                                disabled={!newMessage.trim() || loading || uploadingMedia || !canSendMessage}
+                                disabled={!newMessage.trim() || loading || uploadingMedia || uploadingVoice || !canSendMessage}
                                 activeOpacity={0.8}
                             >
                                 <LinearGradient
@@ -1638,32 +1648,14 @@ export default function GroupChatPage() {
 
 
                 {/* Custom Alert */}
-                <Modal
+                <CustomAlert
                     visible={customAlert.visible}
-                    transparent={true}
-                    animationType="fade"
-                    onRequestClose={hideCustomAlert}
-                >
-                    <View style={styles.alertOverlay}>
-                        <View style={[
-                            styles.alertContainer,
-                            { backgroundColor: theme.colors.surface }
-                        ]}>
-                            <Text style={[
-                                styles.alertTitle,
-                                { color: theme.colors.text }
-                            ]}>
-                                {customAlert.title}
-                            </Text>
-                            <Text style={[
-                                styles.alertMessage,
-                                { color: theme.colors.textSecondary }
-                            ]}>
-                                {customAlert.message}
-                            </Text>
-                        </View>
-                    </View>
-                </Modal>
+                    title={customAlert.title}
+                    message={customAlert.message}
+                    type={customAlert.type}
+                    onConfirm={customAlert.onConfirm}
+                    onClose={hideCustomAlert}
+                />
 
                 {/* Action Sheet Modal */}
                 <Modal
@@ -2094,7 +2086,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 16,
         borderTopWidth: 1,
-        paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 30,
     },
     mediaButtonsContainer: {
         flexDirection: 'row',
@@ -2258,35 +2250,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.9)',
     },
 
-    // Alert styles
-    alertOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    alertContainer: {
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 20,
-        marginHorizontal: 20,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 8,
-    },
-    alertTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        marginBottom: 8,
-    },
-    alertMessage: {
-        fontSize: 14,
-        textAlign: 'center',
-        lineHeight: 20,
-    },
+
 
     errorText: {
         textAlign: 'center',

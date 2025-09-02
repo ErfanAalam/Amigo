@@ -7,17 +7,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import CallButton from '../../components/CallButton';
 import { useTheme } from '../../context/ThemeContext';
 
 interface ContactUser {
@@ -312,20 +313,30 @@ export default function ContactsScreen() {
           </View> */}
         </View>
         
-        <TouchableOpacity 
-          style={[styles.messageButton]}
-          onPress={() => startChat(item)}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={[color1, color2]}
-            style={styles.messageButtonGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+        <View style={styles.actionButtons}>
+          <CallButton
+            receiverId={item.uid}
+            receiverName={item.displayName}
+            receiverPhone={item.phoneNumber}
+            size="small"
+            variant="ghost"
+            style={styles.callButton}
+          />
+          <TouchableOpacity 
+            style={[styles.messageButton]}
+            onPress={() => startChat(item)}
+            activeOpacity={0.8}
           >
-            <Ionicons name="chatbubble" size={16} color="#ffffff" />
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={[color1, color2]}
+              style={styles.messageButtonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="chatbubble" size={16} color="#ffffff" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </TouchableOpacity>
     );
   };
@@ -724,6 +735,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  // Action buttons styles
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  callButton: {
+    marginRight: 4,
+  },
   // Message button styles
   messageButton: {
     shadowColor: '#000',

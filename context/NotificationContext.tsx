@@ -55,13 +55,13 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
         console.log('FCM token:', token, 'Notifications enabled:', enabled);
         
         // Show success message
-        if (token) {
-          Alert.alert(
-            'Success', 
-            'Notification permissions granted! You will now receive notifications.',
-            [{ text: 'OK' }]
-          );
-        }
+        // if (token) {
+        //   Alert.alert(
+        //     'Success', 
+        //     'Notification permissions granted! You will now receive notifications.',
+        //     [{ text: 'OK' }]
+        //   );
+        // }
       } catch (error) {
         console.error('Error requesting notification permissions:', error);
         Alert.alert(
@@ -146,6 +146,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
   // Request permissions when user logs in
   useEffect(() => {
     if (userData?.uid) {
+      console.log('🔐 User logged in, requesting notification permissions for:', userData.uid);
       requestPermissions();
     }
   }, [userData?.uid]);
@@ -153,11 +154,21 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
   // Remove token when user logs out
   useEffect(() => {
     if (!userData?.uid && fcmToken) {
+      console.log('🚪 User logged out, removing FCM token');
       notificationService.removeToken(fcmToken);
       setFcmToken(null);
       setIsNotificationsEnabled(false);
     }
   }, [userData?.uid, fcmToken]);
+
+  // Log current state for debugging
+  useEffect(() => {
+    console.log('🔍 NotificationContext state:', {
+      fcmToken: fcmToken ? `${fcmToken.substring(0, 20)}...` : null,
+      isNotificationsEnabled,
+      userDataUid: userData?.uid
+    });
+  }, [fcmToken, isNotificationsEnabled, userData?.uid]);
 
   const value: NotificationContextType = {
     fcmToken,

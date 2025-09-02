@@ -2,11 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 
 export default function TabLayout() {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   // Modern tab icon component with gradient background
   const ModernTabIcon = ({ 
@@ -78,16 +80,14 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: theme.colors.border,
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 90,
-          // marginBottom: 20,
+          paddingBottom: Platform.OS === 'android' ? insets.bottom + 8 : 8,
+          height: Platform.OS === 'android' ? 70 + insets.bottom : 90,
         },
         tabBarShowLabel: true,
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '600',
+          fontWeight: '900',
           marginTop: 4,
-          
         },
         headerStyle: { backgroundColor: theme.colors.surface },
         headerTintColor: theme.colors.text,

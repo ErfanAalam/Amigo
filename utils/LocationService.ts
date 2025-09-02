@@ -8,6 +8,7 @@ export interface UserLocation {
   state: string;
   city: string;
   address?: string;
+  ipAddress?: string;
   timestamp: Date;
 }
 
@@ -37,10 +38,115 @@ export class LocationService {
     }
   }
 
+  async getUserIPAddress(): Promise<string | null> {
+    try {
+      // Try multiple IP geolocation services for redundancy
+      const services = [
+        'https://api.ipify.org?format=json',
+        'https://api64.ipify.org?format=json',
+        'https://httpbin.org/ip',
+        'https://ipapi.co/json/',
+        'https://ipinfo.io/json'
+      ];
+
+      for (const service of services) {
+        try {
+          const response = await fetch(service, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'AmigoApp/1.0',
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            
+            // Handle different response formats
+            if (data.ip) {
+              console.log('IP address fetched successfully from:', service);
+              return data.ip;
+            } else if (data.origin) {
+              // httpbin.org returns {origin: "ip"}
+              console.log('IP address fetched successfully from:', service);
+              return data.origin;
+            } else if (data.query) {
+              // ipapi.co returns {query: "ip"}
+              console.log('IP address fetched successfully from:', service);
+              return data.query;
+            }
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.log(`Failed to get IP from ${service}:`, errorMessage);
+          continue; // Try next service
+        }
+      }
+
+      console.log('All IP services failed, returning null');
+      return null;
+    } catch (error) {
+      console.error('Error getting user IP address:', error);
+      return null;
+    }
+  }
+
+  async getIPLocationData(ipAddress: string): Promise<{
+    country: string;
+    state: string;
+    city: string;
+    latitude?: number;
+    longitude?: number;
+  } | null> {
+    try {
+      // Use ip-api.com (free tier, no API key required)
+      const response = await fetch(`http://ip-api.com/json/${ipAddress}?fields=status,message,country,regionName,city,lat,lon`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          return {
+            country: data.country || 'Unknown',
+            state: data.regionName || 'Unknown',
+            city: data.city || 'Unknown',
+            latitude: data.lat,
+            longitude: data.lon,
+          };
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting IP location data:', error);
+      return null;
+    }
+  }
+
   async getCurrentLocation(): Promise<UserLocation | null> {
     try {
+      // Get IP address first
+      const ipAddress = await this.getUserIPAddress();
+      let ipLocationData = null;
+      
+      if (ipAddress) {
+        ipLocationData = await this.getIPLocationData(ipAddress);
+      }
+
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
+        // If no GPS permission, return IP-based location
+        if (ipLocationData) {
+          return {
+            latitude: ipLocationData.latitude || 0,
+            longitude: ipLocationData.longitude || 0,
+            country: ipLocationData.country,
+            state: ipLocationData.state,
+            city: ipLocationData.city,
+            ipAddress: ipAddress || undefined,
+            timestamp: new Date(),
+          };
+        }
         return null;
       }
 
@@ -61,10 +167,11 @@ export class LocationService {
         return {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-          country: address.country || 'Unknown',
-          state: address.region || address.subregion || 'Unknown',
-          city: address.city || address.district || 'Unknown',
+          country: address.country || ipLocationData?.country || 'Unknown',
+          state: address.region || address.subregion || ipLocationData?.state || 'Unknown',
+          city: address.city || address.district || ipLocationData?.city || 'Unknown',
           address: `${address.street || ''} ${address.name || ''}`.trim(),
+          ipAddress: ipAddress || undefined,
           timestamp: new Date(),
         };
       }
@@ -72,9 +179,10 @@ export class LocationService {
       return {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-        country: 'Unknown',
-        state: 'Unknown',
-        city: 'Unknown',
+        country: ipLocationData?.country || 'Unknown',
+        state: ipLocationData?.state || 'Unknown',
+        city: ipLocationData?.city || 'Unknown',
+        ipAddress: ipAddress || undefined,
         timestamp: new Date(),
       };
     } catch (error) {
@@ -106,12 +214,16 @@ export class LocationService {
           distanceInterval: 1000, // Update if moved more than 1000 meters
         },
         async (location) => {
+          // Get IP address for tracking updates
+          const ipAddress = await this.getUserIPAddress();
+          
           const userLocation: UserLocation = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             country: 'Unknown',
             state: 'Unknown',
             city: 'Unknown',
+            ipAddress: ipAddress || undefined,
             timestamp: new Date(),
           };
 
@@ -161,6 +273,7 @@ export class LocationService {
           state: location.state,
           city: location.city,
           address: location.address,
+          ipAddress: location.ipAddress,
           timestamp: FieldValue.serverTimestamp(),
         },
         lastLocationUpdate: FieldValue.serverTimestamp(),

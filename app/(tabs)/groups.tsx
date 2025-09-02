@@ -7,7 +7,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import CustomAlert from '../../components/CustomAlert';
 import { useTheme } from '../../context/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
@@ -63,6 +63,41 @@ export default function Groups() {
   const [joining, setJoining] = useState(false);
   const [joinGroupId, setJoinGroupId] = useState("");
   const [showInnerGroups, setShowInnerGroups] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Custom Alert state
+  const [customAlert, setCustomAlert] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'info' | 'warning';
+    onConfirm?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+
+  // Custom Alert functions
+  const showCustomAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning', onConfirm?: () => void) => {
+    setCustomAlert({
+      visible: true,
+      title,
+      message,
+      type,
+      onConfirm,
+    });
+  };
+
+  const hideCustomAlert = () => {
+    setCustomAlert({
+      visible: false,
+      title: '',
+      message: '',
+      type: 'info',
+    });
+  };
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -98,7 +133,7 @@ export default function Groups() {
       setUserGroups(userGroupsData);
     } catch (error: any) {
       console.error("Error fetching groups:", error);
-      Alert.alert("Error", "Failed to load groups. Please try again.");
+      showCustomAlert("Error", "Failed to load groups. Please try again.", "error");
     } finally {
       setLoading(false);
     }
@@ -142,11 +177,14 @@ export default function Groups() {
         });
 
         setUserGroups(userGroupsData);
-        setLoading(false);
+        // Only set loading to false if it was true (initial load)
+        if (loading) {
+          setLoading(false);
+        }
       }, (error) => {
         console.error("Error in groups listener:", error);
         setLoading(false);
-        Alert.alert("Error", "Failed to load groups. Please try again.");
+        showCustomAlert("Error", "Failed to load groups. Please try again.", "error");
       });
 
     return () => unsubscribe();
@@ -169,26 +207,68 @@ export default function Groups() {
       .doc(user.uid)
       .onSnapshot((doc) => {
         if (doc.exists) {
-          // If user document changes, refresh groups to ensure accuracy
-          fetchGroups();
+          // If user document changes, silently refresh groups to ensure accuracy
+          // This will be handled by the real-time listener, so no need to call fetchGroups
         }
       }, (error) => {
         console.error("Error in user listener:", error);
       });
 
     return () => userUnsubscribe();
-  }, [fetchGroups]);
+  }, []);
 
   // Add focus effect to refresh groups when returning to this screen
   useFocusEffect(
     useCallback(() => {
-      // Refresh groups when screen comes into focus
-      fetchGroups();
-    }, [fetchGroups])
+      // Silently refresh groups when screen comes into focus without showing loading
+      const silentRefresh = async () => {
+        try {
+          setIsRefreshing(true);
+          const user = auth().currentUser;
+          if (!user) return;
+
+          // Fetch groups where the user is a member
+          const userGroupsSnapshot = await firestore()
+            .collection('groups')
+            .where('members', 'array-contains', user.uid)
+            .get();
+
+          const userGroupsData: Group[] = [];
+          userGroupsSnapshot.forEach(doc => {
+            const groupData = doc.data();
+            
+            // Filter inner groups to only show those where the user is a member
+            let filteredInnerGroups: InnerGroup[] = [];
+            if (groupData.innerGroups && Array.isArray(groupData.innerGroups)) {
+              filteredInnerGroups = groupData.innerGroups.filter((innerGroup: InnerGroup) => 
+                innerGroup.members && innerGroup.members.includes(user.uid)
+              );
+            }
+            
+            userGroupsData.push({ 
+              id: doc.id, 
+              ...groupData,
+              innerGroups: filteredInnerGroups // Only show inner groups where user is a member
+            } as Group);
+          });
+
+          setUserGroups(userGroupsData);
+        } catch (error: any) {
+          console.error("Error silently refreshing groups:", error);
+          // Don't show error to user for silent refresh
+        } finally {
+          // Hide refreshing indicator after a short delay for smooth UX
+          setTimeout(() => setIsRefreshing(false), 500);
+        }
+      };
+
+      silentRefresh();
+    }, [])
   );
 
   // Manual refresh function
   const handleRefresh = async () => {
+    // Only show loading indicator for manual refresh, not for automatic refresh
     setLoading(true);
     await fetchGroups();
   };
@@ -260,7 +340,7 @@ export default function Groups() {
         .get();
 
       if (groupsSnapshot.empty) {
-        Alert.alert("Error", "Invalid invite code");
+        showCustomAlert("Error", "Invalid invite code", "error");
         return;
       }
 
@@ -268,7 +348,7 @@ export default function Groups() {
       const groupData = groupDoc.data() as Group;
 
       if (groupData.members.includes(user.uid)) {
-        Alert.alert("Error", "You are already a member of this group");
+        showCustomAlert("Error", "You are already a member of this group", "error");
         return;
       }
 
@@ -289,7 +369,7 @@ export default function Groups() {
       // ]);
     } catch (error) {
       console.error("Error joining group:", error);
-      Alert.alert("Error", "Failed to join group");
+      showCustomAlert("Error", "Failed to join group", "error");
     } finally {
       setJoining(false);
     }
@@ -825,6 +905,17 @@ export default function Groups() {
           })()}
         </SafeAreaView>
       </Modal>
+
+      {/* Custom Alert */}
+      <CustomAlert
+        visible={customAlert.visible}
+        title={customAlert.title}
+        message={customAlert.message}
+        type={customAlert.type}
+        onConfirm={customAlert.onConfirm}
+        onClose={hideCustomAlert}
+        showCancelButton={customAlert.type === 'warning' && !!customAlert.onConfirm}
+      />
     </SafeAreaView>
   );
 }

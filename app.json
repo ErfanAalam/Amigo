@@ -30,6 +30,8 @@
         "foregroundImage": "./assets/images/amigo.png",
         "backgroundColor": "#ffffff"
       },
+      "navigationBarColor": "#000000",
+      "navigationBarStyle": "dark",
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.READ_CONTACTS",

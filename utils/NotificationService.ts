@@ -20,38 +20,41 @@ export class NotificationService {
    */
   async requestPermissionsAndGetToken(userId: string): Promise<string | null> {
     try {
+      console.log('🔐 Starting notification permission request for user:', userId);
+      
       // Check current permission status
       const authStatus = await messaging().hasPermission();
-      console.log('Current permission status:', authStatus);
+      console.log('📱 Current permission status:', authStatus);
 
       let finalStatus = authStatus;
 
       // If permission is not granted, request it
       if (authStatus === messaging.AuthorizationStatus.DENIED) {
-        console.log('Requesting notification permission...');
+        console.log('📝 Requesting notification permission...');
         const requestResult = await messaging().requestPermission();
         finalStatus = requestResult;
-        console.log('Permission request result:', requestResult);
+        console.log('📱 Permission request result:', requestResult);
       }
 
       // Check if permission was granted
       if (finalStatus === messaging.AuthorizationStatus.AUTHORIZED || 
           finalStatus === messaging.AuthorizationStatus.PROVISIONAL) {
         
-        console.log('Permission granted, getting FCM token...');
+        console.log('✅ Permission granted, getting FCM token...');
         
         // Get the token
         const token = await messaging().getToken();
         this.fcmToken = token;
         
-        console.log('FCM Token received:', token);
+        console.log('🔑 FCM Token received, length:', token.length);
+        console.log('🔑 FCM Token preview:', token.substring(0, 20) + '...');
         
         // Save token to user's document in Firestore
         await this.saveTokenToFirestore(userId, token);
         
         return token;
       } else {
-        console.log('Permission denied or not determined');
+        console.log('❌ Permission denied or not determined');
         
         // Show alert to guide user to settings
         if (Platform.OS === 'ios') {
@@ -74,7 +77,7 @@ export class NotificationService {
         return null;
       }
     } catch (error) {
-      console.error('Error getting FCM token:', error);
+      console.error('❌ Error getting FCM token:', error);
       
       // Show error alert
       Alert.alert(
@@ -103,13 +106,27 @@ export class NotificationService {
    */
   private async saveTokenToFirestore(userId: string, token: string): Promise<void> {
     try {
+      console.log('💾 Saving FCM token to Firestore...');
+      console.log('👤 User ID:', userId);
+      console.log('🔑 Token length:', token.length);
+      console.log('🔑 Token preview:', token.substring(0, 20) + '...');
+      
       await firebaseFirestore.collection('users').doc(userId).update({
         fcmToken: token,
         pushTokenUpdatedAt: new Date(),
       });
-      console.log('FCM token saved to Firestore');
+      console.log('✅ FCM token saved to Firestore successfully');
+      
+      // Verify the token was saved
+      const userDoc = await firebaseFirestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        console.log('🔍 Verification - FCM token in Firestore:', !!userData?.fcmToken);
+        console.log('🔍 Verification - Token length in Firestore:', userData?.fcmToken?.length || 0);
+      }
     } catch (error) {
-      console.error('Error saving FCM token to Firestore:', error);
+      console.error('❌ Error saving FCM token to Firestore:', error);
+      throw error; // Re-throw to handle in calling function
     }
   }
 

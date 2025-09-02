@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { Image } from 'expo-image';
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Modal,
+  PanResponder,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,7 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Message } from '../types/MessageTypes';
 import { DownloadState, MediaDownloader } from '../utils/MediaDownloader';
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 interface MediaMessageProps {
   message: Message;
@@ -25,11 +27,19 @@ interface MediaMessageProps {
   onLongPress?: () => void;
 }
 
-export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDocumentPress, onLongPress }: MediaMessageProps) {
+function MediaMessageComponent({ message, isOwnMessage, onMediaPress, onDocumentPress, onLongPress }: MediaMessageProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPosition, setPlaybackPosition] = useState(0);
+  
+  // Image zoom modal state
+  const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+  const [imageScale, setImageScale] = useState(1);
+  const [imageTranslateX, setImageTranslateX] = useState(0);
+  const [imageTranslateY, setImageTranslateY] = useState(0);
+  const [lastDistance, setLastDistance] = useState(0);
+  const [lastScale, setLastScale] = useState(1);
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -54,9 +64,78 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
   };
 
   const handleImagePress = () => {
-    // For images, always call onMediaPress for immediate preview
-    if (onMediaPress) {
-      onMediaPress();
+    // Open image in zoom modal
+    setIsImageModalVisible(true);
+    setImageScale(1);
+    setImageTranslateX(0);
+    setImageTranslateY(0);
+  };
+
+  const closeImageModal = () => {
+    setIsImageModalVisible(false);
+    setImageScale(1);
+    setImageTranslateX(0);
+    setImageTranslateY(0);
+  };
+
+  // Pan responder for zoom modal
+  const zoomPanResponder = PanResponder.create({
+    onStartShouldSetPanResponder: (evt) => {
+      return evt.nativeEvent.touches.length === 2 || imageScale > 1;
+    },
+    onMoveShouldSetPanResponder: (evt) => {
+      return evt.nativeEvent.touches.length === 2 || imageScale > 1;
+    },
+    onPanResponderGrant: (evt) => {
+      if (evt.nativeEvent.touches.length === 2) {
+        // Pinch gesture - calculate initial distance
+        const touches = evt.nativeEvent.touches;
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        setLastDistance(distance);
+        setLastScale(imageScale);
+      }
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      if (evt.nativeEvent.touches.length === 2 && lastDistance > 0) {
+        // Pinch to zoom
+        const touches = evt.nativeEvent.touches;
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        const scale = lastScale * (distance / lastDistance);
+        const newScale = Math.max(1, Math.min(4, scale));
+        setImageScale(newScale);
+      } else if (evt.nativeEvent.touches.length === 1 && imageScale > 1) {
+        // Pan when zoomed in (larger than original)
+        setImageTranslateX(gestureState.dx);
+        setImageTranslateY(gestureState.dy);
+      }
+    },
+    onPanResponderRelease: () => {
+      setLastDistance(0);
+      setLastScale(imageScale);
+      
+      // Reset position if not zoomed in
+      if (imageScale <= 1) {
+        setImageTranslateX(0);
+        setImageTranslateY(0);
+      }
+    },
+  });
+
+  // Double tap to zoom
+  const handleDoubleTap = () => {
+    if (imageScale > 1) {
+      // Reset to full size
+      setImageScale(1);
+      setImageTranslateX(0);
+      setImageTranslateY(0);
+    } else {
+      // Zoom in to larger size
+      setImageScale(1);
     }
   };
 
@@ -107,7 +186,7 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
         mimeType
       );
       
-      Alert.alert('Success', 'Media downloaded successfully!');
+      // Alert.alert('Success', 'Media downloaded successfully!');
     } catch (error) {
       console.error('Error downloading media:', error);
       Alert.alert('Error', 'Failed to download media');
@@ -209,12 +288,14 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
           source={{ uri: message.mediaUrl }}
           style={styles.image}
           contentFit="cover"
-          transition={200}
+          transition={0}
+          recyclingKey={message.id}
+          cachePolicy="memory-disk"
         />
         <View style={{position:'absolute',bottom:8,right:4,flexDirection:'row',alignItems:'center',gap:4 ,backgroundColor:'rgba(0, 0, 0, 0.37)',paddingHorizontal:4,paddingVertical:2,borderRadius:4, height:20,width:60}}/>
         <Text style={{position:'absolute',bottom:10,right:10,fontSize:12,color:'#ffffff'}}>{message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString([], {
-          hour: '2-digit', 
-          minute: '2-digit' 
+          hour: '2-digit',
+          minute: '2-digit'
         }) : ''}</Text>
       </TouchableOpacity>
       
@@ -250,6 +331,50 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
           {message.text}
         </Text>
       )} */}
+      
+      {/* Image Zoom Modal */}
+      <Modal
+        visible={isImageModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeImageModal}
+      >
+        <View style={styles.zoomModalContainer}>
+          <View style={styles.zoomModalBackground} {...zoomPanResponder.panHandlers}>
+            <TouchableOpacity 
+              activeOpacity={1}
+              onPress={handleDoubleTap}
+              style={styles.zoomImageContainer}
+            >
+              <Image
+                source={{ uri: message.mediaUrl }}
+                style={[
+                  styles.zoomImage,
+                  {
+                    transform: [
+                      { scale: imageScale },
+                      { translateX: imageTranslateX },
+                      { translateY: imageTranslateY },
+                    ],
+                  },
+                ]}
+                contentFit="contain"
+                transition={0}
+                recyclingKey={message.id}
+                cachePolicy="memory-disk"
+              />
+            </TouchableOpacity>
+          </View>
+          
+          {/* Close button */}
+          <TouchableOpacity 
+            style={styles.zoomCloseButton} 
+            onPress={closeImageModal}
+          >
+            <Ionicons name="close" size={24} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 
@@ -422,6 +547,34 @@ export default function MediaMessage({ message, isOwnMessage, onMediaPress, onDo
     </View>
   );
 }
+
+// Prevent unnecessary re-renders when typing in input by memoizing the media message.
+// Ignore function prop identity changes and only re-render when relevant message fields change.
+export default memo(MediaMessageComponent, (prevProps, nextProps) => {
+  const prev = prevProps.message;
+  const next = nextProps.message;
+
+  if (prevProps.isOwnMessage !== nextProps.isOwnMessage) return false;
+
+  // Compare key message fields; ignore handler props to avoid re-renders from new function identities
+  if (prev.id !== next.id) return false;
+  if (prev.messageType !== next.messageType) return false;
+  if (prev.mediaUrl !== next.mediaUrl) return false;
+  if ((prev.text || '') !== (next.text || '')) return false;
+
+  const prevStarLen = Array.isArray(prev.starredBy) ? prev.starredBy.length : 0;
+  const nextStarLen = Array.isArray(next.starredBy) ? next.starredBy.length : 0;
+  if (prevStarLen !== nextStarLen) return false;
+
+  const prevReadByLen = Array.isArray(prev.readBy) ? prev.readBy.length : 0;
+  const nextReadByLen = Array.isArray(next.readBy) ? next.readBy.length : 0;
+  if (prevReadByLen !== nextReadByLen) return false;
+
+  if (!!prev.isPinned !== !!next.isPinned) return false;
+
+  // Equal → skip re-render
+  return true;
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -624,5 +777,42 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+  },
+  
+  // Zoom modal styles
+  zoomModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomModalBackground: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomImageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomImage: {
+    width: screenWidth ,
+    height: screenHeight * 0.7,
+    maxWidth: screenWidth,
+    maxHeight: screenHeight * 0.7,
+  },
+  zoomCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
 });

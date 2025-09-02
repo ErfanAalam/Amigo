@@ -3,9 +3,9 @@ import { Stack } from "expo-router";
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-// import IncomingCallHandler from '../components/IncomingCallHandler';
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { CallManager } from "../components/CallManager";
 import { AuthProvider, useAuth } from "../context/AuthContext";
-// import { CallProvider } from '../context/CallContext';
 import { NotificationProvider } from "../context/NotificationContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
@@ -35,6 +35,14 @@ function RootLayoutNav() {
                 animation: 'slide_from_right'
               }} 
             />
+            <Stack.Screen 
+              name="audioCall" 
+              options={{ 
+                headerShown: false,
+                presentation: 'fullScreenModal',
+                animation: 'slide_from_bottom'
+              }} 
+            />
           </>
         ) : (
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
@@ -46,17 +54,18 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
+    <SafeAreaProvider>  
     <ThemeProvider>
       <AuthProvider>
         <NotificationProvider>
-          {/* <CallProvider> */}
+          <CallManager>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <RootLayoutNav />
-              {/* <IncomingCallHandler /> */}
             </GestureHandlerRootView>
-          {/* </CallProvider> */}
+          </CallManager>
         </NotificationProvider>
       </AuthProvider>
     </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
