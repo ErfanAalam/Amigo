@@ -8,6 +8,7 @@ import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseFirestore } from '../firebaseConfig';
 import { Call, CallNotification } from '../types/CallTypes';
 import { requestMicrophonePermission, showPermissionDeniedAlert } from '../utils/permissions';
+import { sendCallNotification } from '../utils/sendNotification';
 
 interface CallManagerProps {
   children: React.ReactNode;
@@ -103,7 +104,6 @@ const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
 
 export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
   const { userData } = useAuth();
-  const { theme } = useTheme();
   const router = useRouter();
   
   const [incomingCall, setIncomingCall] = useState<CallNotification | null>(null);
@@ -118,20 +118,41 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
     return `channel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
-  // Fetch Agora token from backend
+  // Fetch Agora token from backend (unused but kept for potential future use)
   const fetchAgoraToken = useCallback(async (channelId: string, uid: string): Promise<string> => {
     try {
-      const response = await fetch(`https://amigo-admin-eight.vercel.app/api/agora/token?channel=${channelId}&uid=${uid}`);
+      console.log('🔑 Fetching Agora token for channel:', channelId, 'UID:', uid);
+      
+      const response = await fetch('https://amigo-admin-eight.vercel.app/api/agora/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channelName: channelId,
+          uid: uid,
+          role: 'publisher'
+        })
+      });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ Token request failed:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
       
       const data = await response.json();
+      console.log('✅ Token received successfully:', {
+        channelName: data.channelName,
+        uid: data.uid,
+        expiresIn: data.expiresIn,
+        generatedAt: data.generatedAt
+      });
+      
       return data.token;
     } catch (error) {
-      console.error('Error fetching Agora token:', error);
-      throw new Error('Failed to get call token');
+      console.error('❌ Error fetching Agora token:', error);
+      throw new Error(`Failed to get call token: ${error}`);
     }
   }, []);
 
@@ -168,6 +189,38 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
 
       const callRef = await firebaseFirestore.collection('calls').add(callData);
       
+      console.log('✅ Call created with ID:', callRef.id, 'Status: ringing');
+      
+      // Send push notification to the callee
+      try {
+        console.log('📞 Starting to send call notification...');
+        console.log('📞 Call details:', {
+          calleeId,
+          callerName: userData.displayName,
+          callId: callRef.id,
+          channelId
+        });
+        
+        await sendCallNotification(
+          calleeId,
+          userData.displayName,
+          'audio',
+          callRef.id,
+          channelId
+        );
+        console.log('✅ Call notification sent successfully to:', calleeName);
+      } catch (notificationError) {
+        console.error('❌ Error sending call notification:', notificationError);
+        console.error('❌ Notification error details:', {
+          calleeId,
+          callerName: userData.displayName,
+          callId: callRef.id,
+          channelId,
+          error: notificationError
+        });
+        // Don't fail the call if notification fails
+      }
+      
       // Navigate to call screen
       router.push({
         pathname: '/audioCall',
@@ -199,6 +252,8 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
         status: 'accepted',
         acceptedAt: FieldValue.serverTimestamp(),
       });
+      
+      console.log('✅ Call status updated to accepted for call:', incomingCall.callId);
 
       // Navigate to call screen
       router.push({
@@ -243,17 +298,6 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
     }
   }, [incomingCall, userData]);
 
-  // End call
-  const endCall = useCallback(async (callId: string): Promise<void> => {
-    try {
-      await firebaseFirestore.collection('calls').doc(callId).update({
-        status: 'ended',
-        endedAt: FieldValue.serverTimestamp(),
-      });
-    } catch (error) {
-      console.error('Error ending call:', error);
-    }
-  }, []);
 
   // Listen for incoming calls
   useEffect(() => {
@@ -287,7 +331,7 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
               if (showIncomingCallModal) {
                 declineCall();
               }
-            }, 30000);
+            }, 30000) as unknown as NodeJS.Timeout;
           }
         });
       }, (error) => {
@@ -368,6 +412,38 @@ export const useCallManager = () => {
       };
 
       const callRef = await firebaseFirestore.collection('calls').add(callData);
+      
+      console.log('✅ Call created with ID:', callRef.id, 'Status: ringing');
+      
+      // Send push notification to the callee
+      try {
+        console.log('📞 Starting to send call notification...');
+        console.log('📞 Call details:', {
+          calleeId,
+          callerName: userData.displayName,
+          callId: callRef.id,
+          channelId
+        });
+        
+        await sendCallNotification(
+          calleeId,
+          userData.displayName,
+          'audio',
+          callRef.id,
+          channelId
+        );
+        console.log('✅ Call notification sent successfully to:', calleeName);
+      } catch (notificationError) {
+        console.error('❌ Error sending call notification:', notificationError);
+        console.error('❌ Notification error details:', {
+          calleeId,
+          callerName: userData.displayName,
+          callId: callRef.id,
+          channelId,
+          error: notificationError
+        });
+        // Don't fail the call if notification fails
+      }
       
       // Navigate to call screen
       router.push({

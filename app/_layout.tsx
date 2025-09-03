@@ -5,6 +5,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { CallManager } from "../components/CallManager";
+import { NotificationHandler } from "../components/NotificationHandler";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { ThemeProvider } from "../context/ThemeContext";
@@ -58,11 +59,13 @@ export default function RootLayout() {
     <ThemeProvider>
       <AuthProvider>
         <NotificationProvider>
-          <CallManager>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <RootLayoutNav />
-            </GestureHandlerRootView>
-          </CallManager>
+          <NotificationHandler>
+            <CallManager>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <RootLayoutNav />
+              </GestureHandlerRootView>
+            </CallManager>
+          </NotificationHandler>
         </NotificationProvider>
       </AuthProvider>
     </ThemeProvider>

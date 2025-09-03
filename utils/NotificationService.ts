@@ -170,6 +170,41 @@ export class NotificationService {
   }
 
   /**
+   * Debug function to check notification setup
+   */
+  async debugNotificationSetup(userId: string): Promise<void> {
+    try {
+      console.log('🔍 === NOTIFICATION DEBUG START ===');
+      
+      // Check permissions
+      const authStatus = await messaging().hasPermission();
+      console.log('📱 Permission status:', authStatus);
+      
+      // Check FCM token
+      const token = await messaging().getToken();
+      console.log('🔑 FCM Token exists:', !!token);
+      console.log('🔑 FCM Token length:', token ? token.length : 0);
+      console.log('🔑 FCM Token preview:', token ? token.substring(0, 30) + '...' : 'No token');
+      
+      // Check Firestore user document
+      const userDoc = await firebaseFirestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        console.log('👤 User document exists:', !!userData);
+        console.log('🔑 FCM Token in Firestore:', !!userData?.fcmToken);
+        console.log('🔑 FCM Token length in Firestore:', userData?.fcmToken ? userData.fcmToken.length : 0);
+        console.log('📊 User data keys:', Object.keys(userData || {}));
+      } else {
+        console.log('❌ User document does not exist in Firestore');
+      }
+      
+      console.log('🔍 === NOTIFICATION DEBUG END ===');
+    } catch (error) {
+      console.error('❌ Error in notification debug:', error);
+    }
+  }
+
+  /**
    * Check if notifications are enabled
    */
   async areNotificationsEnabled(): Promise<boolean> {
@@ -192,13 +227,25 @@ export class NotificationService {
   setupNotificationListeners() {
     // Handle background messages
     messaging().setBackgroundMessageHandler(async remoteMessage => {
-      console.log('Message handled in the background!', remoteMessage);
+      console.log('📱 Message handled in the background!', remoteMessage);
+      
+      // Handle call notifications in background
+      if (remoteMessage.data?.type === 'call') {
+        console.log('📞 Call notification received in background:', remoteMessage.data);
+        // The notification will be handled by the system when user taps it
+      }
     });
 
     // Handle foreground messages
     const unsubscribe = messaging().onMessage(async remoteMessage => {
-      console.log('A new FCM message arrived!', remoteMessage);
-      // You can show a local notification here
+      console.log('📱 A new FCM message arrived!', remoteMessage);
+      
+      // Handle call notifications in foreground
+      if (remoteMessage.data?.type === 'call') {
+        console.log('📞 Call notification received in foreground:', remoteMessage.data);
+        // For call notifications, we might want to show a custom in-app notification
+        // or let the existing CallManager handle it
+      }
     });
 
     return unsubscribe;
@@ -246,12 +293,14 @@ export class NotificationService {
         };
       case 'call':
         return {
-          screen: 'call',
+          screen: 'audioCall',
           params: {
             callId: data.callId,
-            callerId: data.callerId,
+            channelId: data.channelId || '',
+            isInitiator: 'false',
             callerName: data.callerName,
             callType: data.callType,
+            fromNotification: 'true', // Flag to indicate this came from notification
           }
         };
       case 'admin':

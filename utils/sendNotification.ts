@@ -202,6 +202,11 @@ const sendFCMNotification = async (fcmToken: string, notificationData: Notificat
         body: notificationData.body,
         sound: 'default',
         badge: 1,
+        // For call notifications, add special properties
+        ...(notificationData.type === 'call' && {
+          click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          tag: `call_${notificationData.data?.callId}`,
+        }),
       },
       data: {
         ...notificationData.data,
@@ -209,7 +214,11 @@ const sendFCMNotification = async (fcmToken: string, notificationData: Notificat
         chatId: notificationData.chatId,
         timestamp: new Date().toISOString(),
       },
-      priority: 'high',
+      priority: notificationData.type === 'call' ? 'high' : 'high',
+      // For call notifications, add time-to-live to ensure they're delivered quickly
+      ...(notificationData.type === 'call' && {
+        time_to_live: 30, // 30 seconds TTL for call notifications
+      }),
     };
 
     console.log('FCM Notification payload:', notificationPayload);
@@ -377,15 +386,59 @@ export const sendCallNotification = async (
   userId: string,
   callerName: string,
   callType: 'audio' | 'video',
-  callId: string
+  callId: string,
+  channelId?: string
 ) => {
-  await sendPushNotification({
-    userId,
-    title: `📞 Incoming ${callType} call`,
-    body: `${callerName} is calling you`,
-    data: { callerName, callType, callId },
-    type: 'call',
-  });
+  try {
+    console.log('📞 Sending call notification to:', userId);
+    console.log('📞 Call details:', { callerName, callType, callId, channelId });
+    
+    // Get the user's FCM token from Firestore
+    console.log('🔍 Looking up FCM token for user:', userId);
+    const userDoc = await firebaseFirestore
+      .collection('users')
+      .doc(userId)
+      .get();
+
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const fcmToken = userData?.fcmToken;
+      
+      console.log('👤 User found:', userData?.displayName || 'Unknown');
+      console.log('🔑 FCM Token exists:', !!fcmToken);
+      console.log('🔑 FCM Token length:', fcmToken ? fcmToken.length : 0);
+
+      if (fcmToken) {
+        // Send notification directly to live backend
+        console.log('🚀 Sending call notification to live backend...');
+        await sendFCMNotification(fcmToken, {
+          userId,
+          title: `📞 Incoming ${callType} call`,
+          body: `${callerName} is calling you`,
+          data: { 
+            callerName, 
+            callType, 
+            callId,
+            channelId: channelId || '',
+            timestamp: new Date().toISOString()
+          },
+          type: 'call',
+        });
+        
+        console.log('✅ Call notification sent successfully to', userId, 'from', callerName);
+      } else {
+        console.log('❌ User has no FCM token, cannot send call notification');
+        console.log('📊 User data keys:', Object.keys(userData || {}));
+        throw new Error('User has no FCM token');
+      }
+    } else {
+      console.log('❌ User not found in Firestore, cannot send call notification');
+      throw new Error('User not found in Firestore');
+    }
+  } catch (error) {
+    console.error('❌ Error sending call notification:', error);
+    throw error;
+  }
 };
 
 /**

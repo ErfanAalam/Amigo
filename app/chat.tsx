@@ -1502,22 +1502,22 @@ export default function ChatPage() {
                     </LinearGradient>
                   )}
                 </View>
-                <View style={styles.headerTextContainer}>
-                  <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
-                  <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>
-                    {otherUserTyping ? 'typing...' : otherUserOnline ? 'Online' : 'Offline'}
-                  </Text>
-                </View>
+                              <View style={styles.headerTextContainer}>
+                <Text style={[styles.modernHeaderName, { color: theme.colors.onPrimary }]}>{userName}</Text>
+{                otherUserTyping && <Text style={[styles.modernHeaderStatus, { color: theme.colors.onPrimary }]}>typing...</Text>}
               </View>
-              
+
               {/* Call Button */}
               <CallButton
                 receiverId={userId}
                 receiverName={userName}
                 receiverPhone={userPhone}
                 size="medium"
-                variant="outline"
+                variant="ghost"
+                style={styles.headerCallButton}
               />
+              </View>
+            
             </View>
           </LinearGradient>
         </View>
@@ -2302,6 +2302,12 @@ const styles = StyleSheet.create({
   },
   headerTextContainer: {
     flex: 1,
+    flexDirection: 'column',
+    // alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCallButton: {
+    marginLeft: 16,
   },
   modernHeaderName: {
     fontSize: 20,

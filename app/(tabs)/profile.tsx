@@ -18,7 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useNotifications } from '../../context/NotificationContext';
+// import { useNotifications } from '../../context/NotificationContext';
 import { useTheme } from '../../context/ThemeContext';
 
 interface UserData {
@@ -47,14 +47,14 @@ interface DeletedChat {
 export default function Profile() {
   const router = useRouter();
   const { theme, isDark, toggleTheme } = useTheme();
-  const { 
-    fcmToken, 
-    isNotificationsEnabled, 
-    requestPermissions, 
-    sendTestNotification,
-    clearNotifications,
-    refreshNotificationStatus
-  } = useNotifications();
+  // const { 
+  //   fcmToken, 
+  //   isNotificationsEnabled, 
+  //   requestPermissions, 
+  //   sendTestNotification,
+  //   clearNotifications,
+  //   refreshNotificationStatus
+  // } = useNotifications();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
