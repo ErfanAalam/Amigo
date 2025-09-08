@@ -16,6 +16,7 @@ interface UserData {
   isOnline: boolean;
   lastSeen: any;
   profileImageUrl?: string;
+  callAccess: boolean;
 }
 
 interface AuthContextType {

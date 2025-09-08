@@ -28,7 +28,7 @@ let cleanupInProgress = false;
 export const cleanupGlobalAgoraEngine = async () => {
     if (globalAgoraEngine) {
         try {
-            console.log('🧹 Starting global cleanup...');
+           
             isCleaningUp = true;
             callEndRequested = true;
             isCallActive = false;
@@ -37,17 +37,17 @@ export const cleanupGlobalAgoraEngine = async () => {
             try {
                  globalAgoraEngine.muteLocalAudioStream(true);
                  globalAgoraEngine.muteAllRemoteAudioStreams(true);
-                console.log('✅ All audio streams muted during global cleanup');
+               
             } catch (error) {
-                console.log('⚠️ Error muting audio streams during global cleanup:', error);
+               
             }
 
             // Disable monitoring to prevent reconnection
             try {
                 // Note: These methods don't exist in the current API, so we'll rely on engine release
-                console.log('✅ Preparing to release engine during global cleanup');
+               
             } catch (error) {
-                console.log('⚠️ Error preparing engine release during global cleanup:', error);
+               
             }
 
             // Leave channel
@@ -56,9 +56,9 @@ export const cleanupGlobalAgoraEngine = async () => {
 
             // Release engine
             await globalAgoraEngine.release();
-            console.log('✅ Global Agora engine released successfully');
+           
         } catch (error) {
-            console.log('⚠️ Global engine release failed:', error);
+           
         }
         globalAgoraEngine = null;
         isEngineInitialized = false;
@@ -73,13 +73,13 @@ export const cleanupGlobalAgoraEngine = async () => {
 
 // Function to completely reset global state (for call cleanup)
 export const resetGlobalAgoraState = () => {
-    console.log('🔄 Resetting global Agora state...');
+   
     isCallActive = false;
     callEndRequested = false; // Reset to false for new calls
     isCleaningUp = false; // Reset to false for new calls
     cleanupInProgress = false; // Reset to false for new calls
     currentChannelId = null;
-    console.log('✅ Global Agora state reset');
+   
 };
 
 // Utility function to check singleton status
@@ -121,6 +121,7 @@ export interface UseAgoraAudioReturn {
     toggleSpeaker: () => Promise<void>;
     setMute: (muted: boolean) => Promise<void>;
     setSpeaker: (enabled: boolean) => Promise<void>;
+    startCallTimer: () => void;
 
     // Cleanup
     cleanup: () => void;
@@ -159,10 +160,10 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                 ]);
 
                 if (granted['android.permission.RECORD_AUDIO'] === PermissionsAndroid.RESULTS.GRANTED) {
-                    console.log('✅ Audio permissions granted');
+                   
                     return true;
                 } else {
-                    console.log('❌ Audio permissions denied');
+                   
                     return false;
                 }
             } catch (error) {
@@ -178,11 +179,11 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
         try {
             // Check if already initialized for this hook instance
             if (isInitialized) {
-                console.log('ℹ️ Hook already initialized, skipping...');
+               
                 return;
             }
 
-            console.log('🚀 Initializing Agora engine...');
+           
 
             // Request permissions first
             const permissionsGranted = await requestPermissions();
@@ -193,9 +194,9 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             // Use singleton engine instance - but recreate if it was released
             if (!globalAgoraEngine) {
                 globalAgoraEngine = createAgoraRtcEngine();
-                console.log('✅ Global engine created successfully (SINGLETON)');
+               
             } else {
-                console.log('ℹ️ Global engine already exists, reusing (SINGLETON)...');
+               
             }
 
             // Initialize the engine only if not already initialized globally
@@ -205,10 +206,10 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                     channelProfile: ChannelProfileType.ChannelProfileCommunication,
                 });
 
-                console.log('✅ Engine initialized successfully');
+               
                 isEngineInitialized = true;
             } else {
-                console.log('ℹ️ Engine already initialized globally, skipping...');
+               
             }
 
             // Enable audio
@@ -220,22 +221,22 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                     AudioProfileType.AudioProfileDefault,
                     AudioScenarioType.AudioScenarioDefault
                 );
-                console.log('✅ Audio profile set to Default + Default');
+               
             } catch (profileError) {
-                console.log('⚠️ Audio profile setting failed, using defaults:', profileError);
+               
             }
 
             // Set audio route to speaker by default
             try {
                 if (Platform.OS === 'ios') {
                     await globalAgoraEngine.setDefaultAudioRouteToSpeakerphone(true);
-                    console.log('✅ iOS audio route set to speakerphone');
+                   
                 } else {
                     await globalAgoraEngine.setEnableSpeakerphone(true);
-                    console.log('✅ Android speakerphone enabled');
+                   
                 }
             } catch (routeError) {
-                console.log('⚠️ Audio route setting failed:', routeError);
+               
             }
 
             // Register event handler using the correct method
@@ -243,11 +244,11 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             if (!eventHandlersRegistered) {
                 globalAgoraEngine.registerEventHandler({
                     onJoinChannelSuccess: (connection: any, elapsed: number) => {
-                        console.log('🎉 Successfully joined channel:', connection, 'Elapsed:', elapsed);
+                       
 
                         // Skip if we're in cleanup mode or call end was requested
                         if (isCleaningUpRef.current || isCleaningUp || callEndRequested || cleanupInProgress) {
-                            console.log('⚠️ Skipping join success during cleanup or call end requested');
+                           
                             return;
                         }
 
@@ -260,12 +261,12 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                         debouncedStateUpdate(() => {
                             setLocalUid(connection.localUid);
                             setIsJoined(true);
-                            // Don't start timer yet - wait for remote user
+                            // Don't start timer yet - wait for call to be accepted in Firestore
                             joinTimeRef.current = null;
                         }, 100);
                         
                         // Notify that we've joined the channel (but not fully connected yet)
-                        console.log('📞 Calling onCallStatusChange with connecting status');
+                       
                         onCallStatusChange?.('connecting');
 
                         // CRITICAL: Configure audio after joining
@@ -273,17 +274,17 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                             try {
                                 // Skip audio configuration if cleanup started
                                 if (isCleaningUpRef.current || isCleaningUp || callEndRequested) {
-                                    console.log('⚠️ Skipping audio configuration - cleanup started');
+                                   
                                     return;
                                 }
 
                                 // Force unmute local audio
                                 await globalAgoraEngine!.muteLocalAudioStream(false);
-                                console.log('✅ Local audio unmuted after join');
+                               
 
                                 // Force unmute all remote audio streams
                                 await globalAgoraEngine!.muteAllRemoteAudioStreams(false);
-                                console.log('✅ All remote audio streams unmuted after join');
+                               
 
                                 // Force speakerphone ON
                                 if (Platform.OS === 'ios') {
@@ -291,64 +292,28 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                                 } else {
                                     await globalAgoraEngine!.setEnableSpeakerphone(true);
                                 }
-                                console.log('✅ Speakerphone forced ON after join');
+                               
                             } catch (error) {
-                                console.log('⚠️ Audio configuration after join failed:', error);
+                               
                             }
                         }, 500);
-                        
-                        // Fallback: Start timer after a delay if no remote user joins
-                        // This handles cases where onUserJoined might not fire
-                        setTimeout(() => {
-                            if (!joinTimeRef.current && isCallActive && !callEndRequested && !isCleaningUp) {
-                                console.log('⏰ Fallback: Starting timer without remote user');
-                                joinTimeRef.current = Date.now();
-                                
-                                // Start duration timer
-                                durationIntervalRef.current = setInterval(() => {
-                                    if (joinTimeRef.current && !callEndRequested && !isCleaningUp) {
-                                        const duration = Math.floor((Date.now() - joinTimeRef.current) / 1000);
-                                        setCallDuration(duration);
-                                    }
-                                }, 1000) as unknown as NodeJS.Timeout;
-                                
-                                // Notify that call is now connected
-                                console.log('📞 Fallback: Calling onCallStatusChange with connected status');
-                                onCallStatusChange?.('connected');
-                            }
-                        }, 3000);
                     },
 
                     onUserJoined: async (connection: any, uid: number, elapsed: number) => {
-                        console.log('👥 Remote user joined:', uid, 'Elapsed:', elapsed);
+                       
 
                         // Skip if we're in cleanup mode or call end was requested
                         if (isCleaningUpRef.current || isCleaningUp || callEndRequested || cleanupInProgress) {
-                            console.log('⚠️ Skipping user joined during cleanup or call end requested');
+                           
                             return;
                         }
 
-                        // Always update remote UID and start timer when remote user joins
+                        // Always update remote UID when remote user joins
                         // Use debounced state update to prevent rapid UI changes
                         debouncedStateUpdate(() => {
                             setRemoteUid(uid);
-                            // Start timer when remote user joins (call is now active)
-                            if (!joinTimeRef.current && !callEndRequested && !isCleaningUp) {
-                                joinTimeRef.current = Date.now();
-                                console.log('⏰ Call timer started - both users connected');
-                                
-                                // Start duration timer
-                                durationIntervalRef.current = setInterval(() => {
-                                    if (joinTimeRef.current && !callEndRequested && !isCleaningUp) {
-                                        const duration = Math.floor((Date.now() - joinTimeRef.current) / 1000);
-                                        setCallDuration(duration);
-                                    }
-                                }, 1000) as unknown as NodeJS.Timeout;
-                                
-                                // Notify that call is now connected
-                                console.log('📞 Calling onCallStatusChange with connected status');
-                                onCallStatusChange?.('connected');
-                            }
+                            // Don't start timer yet - wait for call to be accepted in Firestore
+                           
                         }, 100);
 
                         // CRITICAL: Configure audio when remote user joins
@@ -356,13 +321,13 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                             try {
                                 // Skip audio configuration if cleanup started
                                 if (isCleaningUpRef.current || isCleaningUp || callEndRequested) {
-                                    console.log('⚠️ Skipping audio configuration for remote user - cleanup started');
+                                   
                                     return;
                                 }
 
                                 // Unmute the specific remote UID
                                 await globalAgoraEngine!.muteRemoteAudioStream(uid, false);
-                                console.log('✅ Remote audio unmuted for user:', uid);
+                               
 
                                 // Ensure audio route is set correctly
                                 if (Platform.OS === 'ios') {
@@ -370,23 +335,23 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                                 } else {
                                     await globalAgoraEngine!.setEnableSpeakerphone(true);
                                 }
-                                console.log('✅ Audio route configured for remote user:', uid);
+                               
 
                                 // Force unmute all remote audio streams again
                                 await globalAgoraEngine!.muteAllRemoteAudioStreams(false);
-                                console.log('✅ All remote audio streams unmuted again');
+                               
                                 
                                 // Also ensure local audio is unmuted
                                 await globalAgoraEngine!.muteLocalAudioStream(false);
-                                console.log('✅ Local audio ensured unmuted for remote user');
+                               
                             } catch (error) {
-                                console.log('⚠️ Audio configuration for remote user failed:', error);
+                               
                             }
                         }, 500);
                     },
 
                     onUserOffline: (connection: any, uid: number, reason: number) => {
-                        console.log('👋 Remote user left:', uid, 'Reason:', reason);
+                       
 
                         // Use debounced state update to prevent rapid UI changes
                         debouncedStateUpdate(() => {
@@ -395,7 +360,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                     },
 
                     onLeaveChannel: (connection: any, stats: any) => {
-                        console.log('🚪 Left channel:', connection, 'Stats:', stats);
+                       
 
                         // Set call as inactive and cleanup flags
                         isCallActive = false;
@@ -421,7 +386,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                         currentChannelId = null;
 
                         // Don't notify call ended on leave channel - let the endCall function handle it
-                        console.log('⚠️ onLeaveChannel triggered, not notifying call ended');
+                       
 
                         // Force mute all audio streams to ensure no audio continues
                         setTimeout(async () => {
@@ -429,7 +394,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                                 if (globalAgoraEngine) {
                                     await globalAgoraEngine.muteLocalAudioStream(true);
                                     await globalAgoraEngine.muteAllRemoteAudioStreams(true);
-                                    console.log('✅ All audio streams muted after leaving channel');
+                                   
                                     
                                     // Mute again after a short delay to ensure it sticks
                                     setTimeout(async () => {
@@ -437,29 +402,29 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                                             if (globalAgoraEngine) {
                                                 await globalAgoraEngine.muteLocalAudioStream(true);
                                                 await globalAgoraEngine.muteAllRemoteAudioStreams(true);
-                                                console.log('✅ All audio streams muted again after leaving channel');
+                                               
                                             }
                                         } catch (error) {
-                                            console.log('⚠️ Error muting audio streams again after leave:', error);
+                                           
                                         }
                                     }, 200);
                                 }
                             } catch (error) {
-                                console.log('⚠️ Error muting audio streams after leave:', error);
+                               
                             }
                         }, 500);
                     },
 
                     onAudioVolumeIndication: (connection: any, speakers: any[], totalVolume: number) => {
-                        console.log('🔊 Audio volume indication:', speakers.length, 'speakers, Total:', totalVolume);
+                       
                     },
 
                     onConnectionStateChanged: (connection: any, state: ConnectionStateType, reason: ConnectionChangedReasonType) => {
-                        console.log('🔗 Connection state changed:', state, 'Reason:', reason);
+                       
 
                         // Skip connection state changes during cleanup or after call end
                         if (isCleaningUpRef.current || isCleaningUp || callEndRequested || cleanupInProgress) {
-                            console.log('⚠️ Skipping connection state change during cleanup');
+                           
                             return;
                         }
 
@@ -471,13 +436,13 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
 
                         // Handle connection state changes
                         if (state === ConnectionStateType.ConnectionStateConnected) {
-                            console.log('✅ Connection established successfully');
+                           
                         } else if (state === ConnectionStateType.ConnectionStateDisconnected) {
-                            console.log('❌ Connection lost');
+                           
                         } else if (state === ConnectionStateType.ConnectionStateConnecting) {
-                            console.log('🔄 Connecting...');
+                           
                         } else if (state === ConnectionStateType.ConnectionStateReconnecting) {
-                            console.log('🔄 Reconnecting...');
+                           
                         }
                     },
 
@@ -507,32 +472,32 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                     },
 
                     onTokenPrivilegeWillExpire: (connection: any, token: string) => {
-                        console.log('⚠️ Token will expire soon');
+                       
                     },
 
                     onRequestToken: (connection: any) => {
-                        console.log('🔄 Token requested');
+                       
                     },
 
                     onLocalAudioStateChanged: (connection: any, state: number, error: number) => {
-                        console.log('🎤 Local audio state changed:', state, 'Error:', error);
+                       
                     },
 
                     onRemoteAudioStateChanged: (connection: any, uid: number, state: number, reason: number, elapsed: number) => {
-                        console.log('🔊 Remote audio state changed for user:', uid, 'State:', state, 'Reason:', reason);
+                       
                     },
                 } as IRtcEngineEventHandler);
 
                 eventHandlersRegistered = true;
-                console.log('✅ Event handlers registered successfully');
+               
             } else {
-                console.log('ℹ️ Event handlers already registered, skipping...');
+               
             }
 
             // Store reference to global engine for this hook instance
             // Note: We don't store it in rtcEngineRef anymore since we use global singleton
             setIsInitialized(true);
-            console.log('✅ Agora engine initialization completed');
+           
 
         } catch (error) {
             console.error('❌ Failed to initialize Agora engine:', error);
@@ -548,7 +513,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             }
 
             // CRITICAL: Reset ALL global state for new call
-            console.log('🔄 Resetting ALL global state for new call');
+           
             callEndRequested = false;
             isCleaningUp = false;
             isCleaningUpRef.current = false;
@@ -559,17 +524,17 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             // Force reset all global state to ensure clean start
             resetGlobalAgoraState();
 
-            console.log('🚪 Joining channel:', channelId, 'with UID:', uid);
+           
 
             // If already joined to the same channel, don't join again
             if (isJoined && currentChannelId === channelId) {
-                console.log('ℹ️ Already joined to the same channel, skipping...');
+               
                 return;
             }
 
             // If already joined to a different channel, leave first
             if (isJoined && currentChannelId !== channelId) {
-                console.log('🔄 Already joined to a different channel, leaving first...');
+               
                 isCleaningUpRef.current = true;
                 isCleaningUp = true;
                  globalAgoraEngine.leaveChannel();
@@ -599,15 +564,15 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                 }
             );
 
-            console.log("Join result:", result);
+           
 
             // Handle specific error codes
             if (result !== 0) {
                 switch (result) {
                     case -17:
-                        console.log('⚠️ User already in channel, this is expected - connection will be established');
+                       
                         
-                        console.log('uid', uid);
+                       
 
                         // Don't throw error for -17, let the connection establish naturally
                         break;
@@ -620,7 +585,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             currentChannelId = channelId;
             isCallActive = true;
             callEndRequested = false;
-            console.log('✅ Channel join request sent successfully');
+           
 
         } catch (error) {
             console.error('❌ Failed to join channel:', error);
@@ -632,11 +597,11 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
     const leaveChannel = useCallback(async () => {
         try {
             if (!globalAgoraEngine) {
-                console.log('⚠️ No global engine available for leave');
+               
                 return;
             }
 
-            console.log('🚪 Leaving channel...');
+           
 
             // Set cleanup flags before leaving
             isCleaningUpRef.current = true;
@@ -646,7 +611,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
 
             // Leave the channel
             await globalAgoraEngine.leaveChannel();
-            console.log('✅ Left channel successfully');
+           
 
             // Reset global state
             currentChannelId = null;
@@ -667,7 +632,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             const newMuteState = !isMuted;
             globalAgoraEngine.muteLocalAudioStream(newMuteState);
             setIsMuted(newMuteState);
-            console.log('🔇 Mute toggled:', newMuteState);
+           
 
         } catch (error) {
             console.error('❌ Failed to toggle mute:', error);
@@ -683,7 +648,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
 
             await globalAgoraEngine.muteLocalAudioStream(muted);
             setIsMuted(muted);
-            console.log('🔇 Mute set to:', muted);
+           
 
         } catch (error) {
             console.error('❌ Failed to set mute:', error);
@@ -706,7 +671,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             }
 
             setIsSpeakerOn(newSpeakerState);
-            console.log('🔊 Speaker toggled:', newSpeakerState);
+           
 
         } catch (error) {
             console.error('❌ Failed to toggle speaker:', error);
@@ -727,23 +692,50 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             }
 
             setIsSpeakerOn(enabled);
-            console.log('🔊 Speaker set to:', enabled);
+           
 
         } catch (error) {
             console.error('❌ Failed to set speaker:', error);
         }
     }, []);
 
+    // Start call timer (called when call is accepted in Firestore)
+    const startCallTimer = useCallback(() => {
+        try {
+            // Only start timer if not already started and call is active
+            if (!joinTimeRef.current && isCallActive && !callEndRequested && !isCleaningUp) {
+                joinTimeRef.current = Date.now();
+               
+                
+                // Start duration timer
+                durationIntervalRef.current = setInterval(() => {
+                    if (joinTimeRef.current && !callEndRequested && !isCleaningUp) {
+                        const duration = Math.floor((Date.now() - joinTimeRef.current) / 1000);
+                        setCallDuration(duration);
+                    }
+                }, 1000) as unknown as NodeJS.Timeout;
+                
+                // Notify that call is now connected
+               
+                onCallStatusChange?.('connected');
+            } else {
+               
+            }
+        } catch (error) {
+            console.error('❌ Error starting call timer:', error);
+        }
+    }, [onCallStatusChange]);
+
     // Cleanup function
     const cleanup = useCallback(async () => {
         try {
             // Prevent multiple cleanup calls
             if (cleanupInProgress) {
-                console.log('⚠️ Cleanup already in progress, skipping...');
+               
                 return;
             }
             
-            console.log('🧹 Starting cleanup...');
+           
             cleanupInProgress = true;
             isCleaningUpRef.current = true;
             isCleaningUp = true;
@@ -767,23 +759,23 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             // Force mute all audio streams immediately
             if (globalAgoraEngine) {
                 try {
-                    console.log('🔇 Force muting all audio streams...');
+                   
                     await globalAgoraEngine.muteLocalAudioStream(true);
                     await globalAgoraEngine.muteAllRemoteAudioStreams(true);
-                    console.log('✅ All audio streams muted during cleanup');
+                   
                 } catch (error) {
-                    console.log('⚠️ Error muting audio streams during cleanup:', error);
+                   
                 }
             }
 
             // Leave channel if joined
             if (globalAgoraEngine && isJoined) {
-                console.log('🚪 Leaving channel during cleanup...');
+               
                 try {
                     await globalAgoraEngine.leaveChannel();
-                    console.log('✅ Left channel during cleanup');
+                   
                 } catch (error) {
-                    console.log('⚠️ Error leaving channel during cleanup:', error);
+                   
                 }
 
                 // Wait for leave to complete
@@ -793,11 +785,11 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             // CRITICAL: Completely release the engine to prevent reconnection attempts
             if (globalAgoraEngine) {
                 try {
-                    console.log('🚫 Releasing Agora engine to prevent reconnection...');
+                   
                     
                     // Release the engine completely
                     await globalAgoraEngine.release();
-                    console.log('✅ Agora engine released');
+                   
                     
                     // Reset global engine state
                     globalAgoraEngine = null;
@@ -805,12 +797,12 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
                     eventHandlersRegistered = false;
                     
                 } catch (error) {
-                    console.log('⚠️ Error releasing Agora engine:', error);
+                   
                 }
             }
 
             // CRITICAL: Reset ALL global state to prevent reconnection attempts
-            console.log('🔄 Resetting all global state...');
+           
             resetGlobalAgoraState();
 
             // Reset hook state immediately
@@ -832,7 +824,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
             isCallActive = false;
             currentChannelId = null;
             
-            console.log('✅ Complete cleanup finished - engine ready for new calls');
+           
 
         } catch (error) {
             console.error('❌ Error during cleanup:', error);
@@ -845,7 +837,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
     // Don't cleanup on unmount - let the call end naturally
     useEffect(() => {
         return () => {
-            console.log('🧹 Hook unmounting, but not cleaning up to prevent call interruption');
+           
         };
     }, []);
 
@@ -868,6 +860,7 @@ export const useAgoraAudio = (onCallStatusChange?: (status: 'connecting' | 'conn
         toggleSpeaker,
         setMute,
         setSpeaker,
+        startCallTimer,
 
         // Cleanup
         cleanup,

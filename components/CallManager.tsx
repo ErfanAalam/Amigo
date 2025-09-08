@@ -4,10 +4,12 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { useCallStatus } from '../context/CallStatusContext';
 import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseFirestore } from '../firebaseConfig';
-import { Call, CallNotification } from '../types/CallTypes';
+import { CallNotification } from '../types/CallTypes';
 import { requestMicrophonePermission, showPermissionDeniedAlert } from '../utils/permissions';
+import { ringSoundManager } from '../utils/RingSound';
 import { sendCallNotification } from '../utils/sendNotification';
 
 interface CallManagerProps {
@@ -104,156 +106,51 @@ const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
 
 export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
   const { userData } = useAuth();
+  const { setCurrentCall, setCallStatus, clearCall } = useCallStatus();
   const router = useRouter();
   
   const [incomingCall, setIncomingCall] = useState<CallNotification | null>(null);
   const [showIncomingCallModal, setShowIncomingCallModal] = useState(false);
-  const [isProcessingCall, setIsProcessingCall] = useState(false);
   
   const callListenerRef = useRef<any>(null);
   const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Generate unique channel ID
-  const generateChannelId = useCallback(() => {
-    return `channel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }, []);
+  // const generateChannelId = useCallback(() => {
+  //   return `channel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // }, []);
 
   // Fetch Agora token from backend (unused but kept for potential future use)
-  const fetchAgoraToken = useCallback(async (channelId: string, uid: string): Promise<string> => {
-    try {
-      console.log('🔑 Fetching Agora token for channel:', channelId, 'UID:', uid);
-      
-      const response = await fetch('https://amigo-admin-eight.vercel.app/api/agora/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          channelName: channelId,
-          uid: uid,
-          role: 'publisher'
-        })
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Token request failed:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-      }
-      
-      const data = await response.json();
-      console.log('✅ Token received successfully:', {
-        channelName: data.channelName,
-        uid: data.uid,
-        expiresIn: data.expiresIn,
-        generatedAt: data.generatedAt
-      });
-      
-      return data.token;
-    } catch (error) {
-      console.error('❌ Error fetching Agora token:', error);
-      throw new Error(`Failed to get call token: ${error}`);
-    }
-  }, []);
+
 
   // Start a call
-  const startCall = useCallback(async (calleeId: string, calleeName: string): Promise<void> => {
-    if (!userData?.uid || !userData?.displayName) {
-      Alert.alert('Error', 'User data not available');
-      return;
-    }
 
-    try {
-      // Request microphone permission
-      const hasPermission = await requestMicrophonePermission();
-      if (!hasPermission) {
-        showPermissionDeniedAlert();
-        return;
-      }
-
-      setIsProcessingCall(true);
-
-      // Generate channel ID
-      const channelId = generateChannelId();
-      
-      // Create call document
-      const callData: Omit<Call, 'id'> = {
-        callerId: userData.uid,
-        calleeId,
-        channelId,
-        status: 'ringing',
-        createdAt: FieldValue.serverTimestamp(),
-        callerName: userData.displayName,
-        calleeName,
-      };
-
-      const callRef = await firebaseFirestore.collection('calls').add(callData);
-      
-      console.log('✅ Call created with ID:', callRef.id, 'Status: ringing');
-      
-      // Send push notification to the callee
-      try {
-        console.log('📞 Starting to send call notification...');
-        console.log('📞 Call details:', {
-          calleeId,
-          callerName: userData.displayName,
-          callId: callRef.id,
-          channelId
-        });
-        
-        await sendCallNotification(
-          calleeId,
-          userData.displayName,
-          'audio',
-          callRef.id,
-          channelId
-        );
-        console.log('✅ Call notification sent successfully to:', calleeName);
-      } catch (notificationError) {
-        console.error('❌ Error sending call notification:', notificationError);
-        console.error('❌ Notification error details:', {
-          calleeId,
-          callerName: userData.displayName,
-          callId: callRef.id,
-          channelId,
-          error: notificationError
-        });
-        // Don't fail the call if notification fails
-      }
-      
-      // Navigate to call screen
-      router.push({
-        pathname: '/audioCall',
-        params: {
-          callId: callRef.id,
-          channelId,
-          isInitiator: 'true',
-          calleeName,
-        }
-      });
-
-    } catch (error) {
-      console.error('Error starting call:', error);
-      Alert.alert('Error', 'Failed to start call');
-    } finally {
-      setIsProcessingCall(false);
-    }
-  }, [userData, generateChannelId, router]);
 
   // Accept incoming call
   const acceptCall = useCallback(async () => {
     if (!incomingCall || !userData?.uid) return;
 
     try {
-      setIsProcessingCall(true);
-
       // Update call status to accepted
       await firebaseFirestore.collection('calls').doc(incomingCall.callId).update({
         status: 'accepted',
         acceptedAt: FieldValue.serverTimestamp(),
       });
-      
-      console.log('✅ Call status updated to accepted for call:', incomingCall.callId);
+
+      // Set current call in context
+      const currentCall = {
+        id: incomingCall.callId,
+        callerId: incomingCall.callerId,
+        calleeId: userData.uid,
+        channelId: incomingCall.channelId,
+        status: 'accepted' as const,
+        createdAt: incomingCall.timestamp,
+        acceptedAt: FieldValue.serverTimestamp(),
+        callerName: incomingCall.callerName,
+        calleeName: userData.displayName || 'Unknown',
+      };
+      setCurrentCall(currentCall);
+      setCallStatus('connecting');
 
       // Navigate to call screen
       router.push({
@@ -273,16 +170,21 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
     } catch (error) {
       console.error('Error accepting call:', error);
       Alert.alert('Error', 'Failed to accept call');
-    } finally {
-      setIsProcessingCall(false);
     }
-  }, [incomingCall, userData, router]);
+  }, [incomingCall, userData, router, setCurrentCall, setCallStatus]);
 
   // Decline incoming call
   const declineCall = useCallback(async () => {
     if (!incomingCall || !userData?.uid) return;
 
     try {
+      
+      // Clear timeout first
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current);
+        callTimeoutRef.current = null;
+      }
+
       // Update call status to declined
       await firebaseFirestore.collection('calls').doc(incomingCall.callId).update({
         status: 'declined',
@@ -293,36 +195,44 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
       setShowIncomingCallModal(false);
       setIncomingCall(null);
 
+      // Clear call context
+      clearCall();
+
     } catch (error) {
       console.error('Error declining call:', error);
+      // Still close modal even if Firestore update fails
+      setShowIncomingCallModal(false);
+      setIncomingCall(null);
+      // Clear call context even on error
+      clearCall();
     }
-  }, [incomingCall, userData]);
+  }, [incomingCall, userData, clearCall]);
 
 
   // Listen for incoming calls
   useEffect(() => {
     if (!userData?.uid) return;
 
-    // console.log('Setting up call listener for user:', userData.uid);
 
-    // Listen for calls where user is the callee and status is ringing
+    // Listen for calls where user is the callee
     callListenerRef.current = firebaseFirestore
       .collection('calls')
       .where('calleeId', '==', userData.uid)
-      .where('status', '==', 'ringing')
       .onSnapshot((snapshot) => {
         snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const callData = change.doc.data();
+          const callData = change.doc.data();
+          const callId = change.doc.id;
+
+
+          if (change.type === 'added' && callData.status === 'ringing') {
             const callNotification: CallNotification = {
-              callId: change.doc.id,
+              callId: callId,
               callerId: callData.callerId,
               callerName: callData.callerName || 'Unknown',
               channelId: callData.channelId,
               timestamp: callData.createdAt,
             };
 
-            // console.log('Incoming call received:', callNotification);
             setIncomingCall(callNotification);
             setShowIncomingCallModal(true);
 
@@ -332,6 +242,23 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
                 declineCall();
               }
             }, 30000) as unknown as NodeJS.Timeout;
+          } else if (change.type === 'modified') {
+            // Handle call status changes
+            
+            if (callData.status === 'ended' || callData.status === 'declined') {
+              // Clear timeout if call was ended by caller
+              if (callTimeoutRef.current) {
+                clearTimeout(callTimeoutRef.current);
+                callTimeoutRef.current = null;
+              }
+              
+              // Close the incoming call modal
+              setShowIncomingCallModal(false);
+              setIncomingCall(null);
+              
+              // Clear call context
+              clearCall();
+            }
           }
         });
       }, (error) => {
@@ -346,7 +273,40 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
         clearTimeout(callTimeoutRef.current);
       }
     };
-  }, [userData?.uid, showIncomingCallModal, declineCall]);
+  }, [userData?.uid, showIncomingCallModal, declineCall, clearCall]);
+
+  // Listen for call status changes to stop ring sound for caller
+  useEffect(() => {
+    if (!userData?.uid) return;
+
+    const callStatusListener = firebaseFirestore
+      .collection('calls')
+      .where('callerId', '==', userData.uid)
+      .onSnapshot((snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            const callData = change.doc.data();
+            if (callData.status === 'accepted' || callData.status === 'declined' || callData.status === 'ended') {
+              
+              // Stop ring sound when call is answered or ended
+              ringSoundManager.stopRinging();
+              setShowIncomingCallModal(false);
+              
+              // Clear call context if call ended or declined
+              if (callData.status === 'ended' || callData.status === 'declined') {
+                clearCall();
+              }
+            }
+          }
+        });
+      }, (error) => {
+        console.error('Error listening for call status changes:', error);
+      });
+
+    return () => {
+      callStatusListener();
+    };
+  }, [userData?.uid, clearCall]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -357,8 +317,62 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
       if (callTimeoutRef.current) {
         clearTimeout(callTimeoutRef.current);
       }
+      // Force close modal on unmount
+      setShowIncomingCallModal(false);
+      setIncomingCall(null);
+      // Stop ring sound on unmount
+      ringSoundManager.stopRinging();
     };
   }, []);
+
+  // Additional safety: Close modal if it's been open for too long (35 seconds)
+  useEffect(() => {
+    if (showIncomingCallModal && incomingCall) {
+      const safetyTimeout = setTimeout(() => {
+        setShowIncomingCallModal(false);
+        setIncomingCall(null);
+        if (callTimeoutRef.current) {
+          clearTimeout(callTimeoutRef.current);
+          callTimeoutRef.current = null;
+        }
+      }, 35000); // 35 seconds safety timeout
+
+      return () => {
+        clearTimeout(safetyTimeout);
+      };
+    }
+  }, [showIncomingCallModal, incomingCall]);
+
+  // Additional listener to check call status periodically
+  useEffect(() => {
+    if (!showIncomingCallModal || !incomingCall || !userData?.uid) return;
+
+    const checkCallStatus = async () => {
+      try {
+        const callDoc = await firebaseFirestore.collection('calls').doc(incomingCall.callId).get();
+        if (callDoc.exists) {
+          const callData = callDoc.data();
+          if (callData?.status === 'ended' || callData?.status === 'declined') {
+            setShowIncomingCallModal(false);
+            setIncomingCall(null);
+            if (callTimeoutRef.current) {
+              clearTimeout(callTimeoutRef.current);
+              callTimeoutRef.current = null;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking call status:', error);
+      }
+    };
+
+    // Check every 2 seconds
+    const statusCheckInterval = setInterval(checkCallStatus, 2000);
+
+    return () => {
+      clearInterval(statusCheckInterval);
+    };
+  }, [showIncomingCallModal, incomingCall, userData?.uid]);
 
   return (
     <>
@@ -372,6 +386,11 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
         onClose={() => {
           setShowIncomingCallModal(false);
           setIncomingCall(null);
+          // Clear timeout if manual close
+          if (callTimeoutRef.current) {
+            clearTimeout(callTimeoutRef.current);
+            callTimeoutRef.current = null;
+          }
         }}
       />
     </>
@@ -381,11 +400,18 @@ export const CallManager: React.FC<CallManagerProps> = ({ children }) => {
 // Export the startCall function for use in other components
 export const useCallManager = () => {
   const { userData } = useAuth();
+  const { setCurrentCall, setCallStatus, isInCall } = useCallStatus();
   const router = useRouter();
 
   const startCall = useCallback(async (calleeId: string, calleeName: string): Promise<void> => {
     if (!userData?.uid || !userData?.displayName) {
       Alert.alert('Error', 'User data not available');
+      return;
+    }
+
+    // Check if user is already in a call
+    if (isInCall) {
+      Alert.alert('Call in Progress', 'You are already in a call. Please end the current call before starting a new one.');
       return;
     }
 
@@ -413,17 +439,31 @@ export const useCallManager = () => {
 
       const callRef = await firebaseFirestore.collection('calls').add(callData);
       
-      console.log('✅ Call created with ID:', callRef.id, 'Status: ringing');
+      // Set current call in context
+      const currentCall = {
+        id: callRef.id,
+        ...callData,
+        status: 'ringing' as const,
+      };
+      setCurrentCall(currentCall);
+      setCallStatus('ringing');
+
+      // Start ring sound for caller
+      await ringSoundManager.startRinging();
+
+      // Navigate to call screen
+      router.push({
+        pathname: '/audioCall',
+        params: {
+          callId: callRef.id,
+          channelId,
+          isInitiator: 'true',
+          calleeName,
+        }
+      });
       
       // Send push notification to the callee
       try {
-        console.log('📞 Starting to send call notification...');
-        console.log('📞 Call details:', {
-          calleeId,
-          callerName: userData.displayName,
-          callId: callRef.id,
-          channelId
-        });
         
         await sendCallNotification(
           calleeId,
@@ -432,7 +472,6 @@ export const useCallManager = () => {
           callRef.id,
           channelId
         );
-        console.log('✅ Call notification sent successfully to:', calleeName);
       } catch (notificationError) {
         console.error('❌ Error sending call notification:', notificationError);
         console.error('❌ Notification error details:', {
@@ -445,22 +484,13 @@ export const useCallManager = () => {
         // Don't fail the call if notification fails
       }
       
-      // Navigate to call screen
-      router.push({
-        pathname: '/audioCall',
-        params: {
-          callId: callRef.id,
-          channelId,
-          isInitiator: 'true',
-          calleeName,
-        }
-      });
+
 
     } catch (error) {
       console.error('Error starting call:', error);
       Alert.alert('Error', 'Failed to start call');
     }
-  }, [userData, router]);
+  }, [userData, router, setCurrentCall, setCallStatus, isInCall]);
 
   return { startCall };
 };

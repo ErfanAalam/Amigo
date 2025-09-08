@@ -12,6 +12,7 @@ import {
   View
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { useCallStatus } from '../context/CallStatusContext';
 import { useTheme } from '../context/ThemeContext';
 import { FieldValue, firebaseFirestore } from '../firebaseConfig';
 import { getAgoraEngineStatus, resetGlobalAgoraState, useAgoraAudio } from '../hooks/useAgoraAudio';
@@ -25,6 +26,7 @@ export default function AudioCallScreen() {
   const fromNotification = params.fromNotification === 'true';
   
   const { userData } = useAuth();
+  const { setCallStatus: setGlobalCallStatus, clearCall } = useCallStatus();
   const { theme } = useTheme();
   const router = useRouter();
   
@@ -49,17 +51,14 @@ export default function AudioCallScreen() {
     const fetchCallData = async () => {
       if (fromNotification && (!actualChannelId || actualChannelId === '') && callId) {
         try {
-          console.log('📞 Fetching call data from notification for callId:', callId);
           const callDoc = await firebaseFirestore.collection('calls').doc(callId).get();
           
           if (callDoc.exists) {
             const callData = callDoc.data() as Call;
-            console.log('📞 Call data fetched:', callData);
             
             setActualChannelId(callData.channelId);
             setActualOtherUserName(callData.callerName || callData.calleeName || 'Unknown');
             
-            console.log('✅ Call data updated - channelId:', callData.channelId, 'otherUserName:', callData.callerName || callData.calleeName);
           } else {
             console.error('❌ Call document not found for callId:', callId);
             setError('Call not found');
@@ -84,37 +83,36 @@ export default function AudioCallScreen() {
     leaveChannel,
     toggleMute,
     toggleSpeaker,
+    startCallTimer,
     cleanup: cleanupAgora,
   } = useAgoraAudio((status) => {
-    console.log('📞 Call status change received:', status);
     // Handle call status changes from Agora
     if (status === 'connected') {
       // Only set to connected if the call has been accepted in Firestore
       if (firestoreCallStatus === 'accepted') {
         setCallStatus('connected');
+        setGlobalCallStatus('connected');
         setIsCallEstablished(true);
         startTimeRef.current = Date.now();
-        console.log('✅ Call established - status updated to connected (call accepted)');
       } else {
-        console.log('⚠️ Agora connected but call not accepted yet, keeping connecting status');
         setCallStatus('connecting');
+        setGlobalCallStatus('connecting');
         setIsCallEstablished(false);
       }
     } else if (status === 'ended') {
       setCallStatus('ended');
+      setGlobalCallStatus('ended');
       setIsCallEstablished(false);
-      console.log('✅ Call ended - status updated to ended');
     } else if (status === 'connecting') {
       setCallStatus('connecting');
+      setGlobalCallStatus('connecting');
       setIsCallEstablished(false);
-      console.log('✅ Call connecting - status updated to connecting');
     }
   });
 
   // Fetch Agora token from backend
   const fetchAgoraToken = useCallback(async (channelId: string, uid: string): Promise<string> => {
     try {
-      console.log('🔑 Fetching Agora token for channel:', channelId, 'UID:', uid);
       
       const response = await fetch('https://amigo-admin-eight.vercel.app/api/agora/token', {
         method: 'POST',
@@ -135,12 +133,6 @@ export default function AudioCallScreen() {
       }
       
       const data = await response.json();
-      console.log('✅ Token received successfully:', {
-        channelName: data.channelName,
-        uid: data.uid,
-        expiresIn: data.expiresIn,
-        generatedAt: data.generatedAt
-      });
       
       return data.token;
     } catch (error) {
@@ -153,12 +145,12 @@ export default function AudioCallScreen() {
   const joinCall = useCallback(async () => {
     // Prevent multiple join attempts
     if (hasJoinedChannel || isEndingCall) {
-      console.log('⚠️ Already joined or ending call, skipping join...');
+      
       return;
     }
 
     try {
-      console.log('🚀 Starting call join process...');
+      
       setError(null);
       
       // Reset all call states for new call
@@ -169,26 +161,26 @@ export default function AudioCallScreen() {
       // Initialize Agora engine
       await initialize();
       const engineStatus = getAgoraEngineStatus();
-      console.log(`Agora engine initialized (${engineStatus.engineId})`);
+      
 
       // Generate a unique UID for this user
       const uid = Math.floor(Math.random() * 1000000);
-      console.log(`Generated UID: ${uid}`);
+      
 
       // Fetch token from backend
       const token = await fetchAgoraToken(actualChannelId, uid.toString());
-      console.log(`Token received, length: ${token.length}`);
+      
 
       // Join the channel
       await joinChannel(actualChannelId, token, uid);
-      console.log('Join request sent');
+      
       setHasJoinedChannel(true);
 
       // Don't start timer yet - wait for both users to be connected
       // The timer will start when remote user joins (handled in useAgoraAudio)
       setCallStatus('connecting');
 
-      console.log('✅ Call join process completed successfully');
+      
 
     } catch (error) {
       console.error('❌ Error joining call:', error);
@@ -200,12 +192,12 @@ export default function AudioCallScreen() {
   // End the call
   const endCall = useCallback(async () => {
     if (isEndingCall) {
-      console.log('⚠️ Call ending already in progress, skipping...');
+      
       return;
     }
 
     try {
-      console.log('🚪 Ending call...');
+      
       setIsEndingCall(true);
       setCallStatus('ended');
       setHasJoinedChannel(false);
@@ -237,42 +229,45 @@ export default function AudioCallScreen() {
             endedAt: FieldValue.serverTimestamp(),
             duration: callDuration,
           });
-          console.log('✅ Firestore call status updated');
+          
         } catch (error) {
-          console.log('⚠️ Error updating Firestore:', error);
+          
         }
       }
 
       // Leave Agora channel first
-      console.log('🚪 Leaving Agora channel...');
+      
       try {
         await leaveChannel();
-        console.log('✅ Left Agora channel');
+        
       } catch (error) {
-        console.log('⚠️ Error leaving channel:', error);
+        
       }
 
       // Wait for leave to complete
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Cleanup Agora engine completely
-      console.log('🧹 Cleaning up Agora engine completely...');
+      
       try {
         cleanupAgora();
-        console.log('✅ Agora engine cleaned up');
+        
       } catch (error) {
-        console.log('⚠️ Error cleaning up Agora engine:', error);
+        
       }
 
       // Reset global state to prevent reconnection attempts
-      console.log('🔄 Resetting global Agora state...');
+      
       resetGlobalAgoraState();
+
+      // Clear call from context
+      clearCall();
 
       // Wait for cleanup to complete
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Navigate back
-      console.log('🔙 Navigating back...');
+      
       router.back();
 
     } catch (error) {
@@ -281,7 +276,7 @@ export default function AudioCallScreen() {
     } finally {
       setIsEndingCall(false);
     }
-  }, [callId, callDuration, leaveChannel, cleanupAgora, router, isEndingCall]);
+  }, [callId, callDuration, leaveChannel, cleanupAgora, router, isEndingCall, clearCall]);
   
   // endCall();
   // Listen for call status changes
@@ -295,17 +290,21 @@ export default function AudioCallScreen() {
         if (doc.exists) {
           const callData = doc.data() as Call;
           
-          console.log('📞 Firestore call status update:', callData.status, 'isCallEstablished:', isCallEstablished, 'isEndingCall:', isEndingCall);
+          
           
           // Update Firestore call status
           setFirestoreCallStatus(callData.status);
           
           // Handle call acceptance
           if (callData.status === 'accepted') {
-            console.log('✅ Call accepted in Firestore - updating UI to connected');
+            
             setCallStatus('connected');
+            setGlobalCallStatus('connected');
             setIsCallEstablished(true);
             startTimeRef.current = Date.now();
+            
+            // Start the call timer now that call is accepted
+            startCallTimer();
             
             // Clear any pending call timeout
             if (callTimeoutRef.current) {
@@ -316,20 +315,20 @@ export default function AudioCallScreen() {
           
           // Handle call ringing - set timeout for auto-decline
           if (callData.status === 'ringing' && !callTimeoutRef.current) {
-            console.log('📞 Call is ringing - setting 30 second timeout');
+            
             callTimeoutRef.current = setTimeout(() => {
-              console.log('⏰ Call timeout - auto ending call');
+              
               endCall();
             }, 30000) as unknown as NodeJS.Timeout;
           }
           
           if (callData.status === 'ended' || callData.status === 'declined') {
             // Call was ended by the other party
-            console.log('📞 Call ended by other party:', callData.status);
+            
             
             // Prevent multiple cleanup calls
             if (isEndingCall) {
-              console.log('⚠️ Already ending call, skipping...');
+              
               return;
             }
             
@@ -358,14 +357,14 @@ export default function AudioCallScreen() {
             }
             
             // Cleanup Agora engine completely
-            console.log('🧹 Calling cleanupAgora from Firestore listener');
+            
             try {
               cleanupAgora();
-              console.log('✅ Cleanup completed from Firestore listener');
+              
               // Reset global state to prevent reconnection attempts
               resetGlobalAgoraState();
             } catch (error) {
-              console.log('⚠️ Error during cleanup from Firestore listener:', error);
+              
               // Still reset global state even on error
               resetGlobalAgoraState();
             }
@@ -388,7 +387,20 @@ export default function AudioCallScreen() {
         callStatusListenerRef.current();
       }
     };
-  }, [callId, cleanupAgora, router, isEndingCall, isCallEstablished, hasJoinedChannel, endCall]);
+  }, [callId, cleanupAgora, router, isEndingCall, isCallEstablished, hasJoinedChannel, endCall, setGlobalCallStatus, startCallTimer]);
+
+  // Sync call status when component mounts
+  useEffect(() => {
+    if (firestoreCallStatus === 'accepted' && callStatus === 'connecting') {
+      setCallStatus('connected');
+      setGlobalCallStatus('connected');
+      setIsCallEstablished(true);
+      startTimeRef.current = Date.now();
+      
+      // Start the call timer now that call is accepted
+      startCallTimer();
+    }
+  }, [firestoreCallStatus, callStatus, setGlobalCallStatus, startCallTimer]);
 
   // Auto-join call when component mounts
   useEffect(() => {
@@ -399,7 +411,7 @@ export default function AudioCallScreen() {
 
     // Don't cleanup on unmount - let the call end naturally
     return () => {
-      console.log('🧹 Component unmounting, but not cleaning up to prevent call interruption');
+      
     };
   }, [joinCall, hasJoinedChannel, isEndingCall, callStatus]);
 
@@ -490,11 +502,12 @@ export default function AudioCallScreen() {
         <View style={styles.callInfo}>
           <Text style={styles.callStatusText}>
             {callStatus === 'connecting' && firestoreCallStatus === 'ringing' ? 'Ringing...' :
+             callStatus === 'connecting' && firestoreCallStatus === 'accepted' ? 'In Call' :
              callStatus === 'connecting' ? 'Connecting...' : 
              callStatus === 'ended' ? 'Call Ended' : 'In Call'}
           </Text>
           <Text style={styles.otherUserName}>{actualOtherUserName}</Text>
-          {callStatus === 'connected' && (
+          {(callStatus === 'connected' || (callStatus === 'connecting' && firestoreCallStatus === 'accepted')) && (
             <Text style={styles.callDuration}>{formatDuration(callDuration)}</Text>
           )}
         </View>
@@ -504,12 +517,7 @@ export default function AudioCallScreen() {
             <Ionicons name="person" size={100} color="#4f4f4f" />
         {
           userData?.firstName && userData?.lastName && (
-            <Text style={styles.profileName}>{otherUserName}</Text>
-          )
-        }
-        {
-          userData?.email && (
-            <Text style={styles.profileEmail}>{userData?.email}</Text>
+            <Text style={[styles.profileName, { color: theme.colors.text }]}>{otherUserName}</Text>
           )
         }
         {/* <Text style={styles.profileEmail}>{userData?.email}</Text> */}
@@ -748,7 +756,7 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#ffffff',
+    // color: '#ffffff',
   },
   profileEmail: {
     fontSize: 16,

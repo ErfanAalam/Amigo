@@ -82,7 +82,7 @@ export default function GroupChatPage() {
     const [recordingDuration, setRecordingDuration] = useState(0);
     const [recordingTimer, setRecordingTimer] = useState<ReturnType<typeof setInterval> | null>(null);
     const [recording, setRecording] = useState<Audio.Recording | null>(null);
-    const [sound, setSound] = useState<Audio.Sound | null>(null);
+    const [sound] = useState<Audio.Sound | null>(null);
     // const [isPlaying, setIsPlaying] = string | null>(null);
     // const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
@@ -122,6 +122,9 @@ export default function GroupChatPage() {
     const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
     const [popupAnimation] = useState(new Animated.Value(0));
     const [popupScale] = useState(new Animated.Value(0.8));
+    const [showSeenByModal, setShowSeenByModal] = useState(false);
+    const [selectedMessageForSeenBy, setSelectedMessageForSeenBy] = useState<Message | null>(null);
+    const [seenByUsers, setSeenByUsers] = useState<{uid: string, displayName: string, readAt: any}[]>([]);
 
     const flatListRef = useRef<FlatList>(null);
     // const popupAnimation = useRef(new Animated.Value(0)).current;
@@ -206,7 +209,7 @@ export default function GroupChatPage() {
     };
 
     // Determine the correct collection path for messages
-    const getMessageCollectionPath = () => {
+    const getMessageCollectionPath = useCallback(() => {
         if (innerGroupId) {
             // Admin-created inner group - use chats collection
             return firestore
@@ -220,26 +223,62 @@ export default function GroupChatPage() {
                 .doc(groupId)
                 .collection('messages');
         }
-    };
+    }, [groupId, innerGroupId]);
+
+    const markMessagesAsRead = useCallback(async (messageIds: string[]) => {
+        if (!userData?.uid || messageIds.length === 0) return;
+
+        try {
+            const messagesRef = getMessageCollectionPath();
+            const batch = firestore.batch();
+
+            messageIds.forEach((messageId) => {
+                const messageRef = messagesRef.doc(messageId);
+                batch.update(messageRef, {
+                    readBy: FieldValue.arrayUnion(userData.uid),
+                    readAt: FieldValue.serverTimestamp(),
+                });
+            });
+
+            await batch.commit();
+        } catch (error) {
+            console.error('Error marking messages as read:', error);
+        }
+    }, [userData?.uid, getMessageCollectionPath]);
 
     // Fetch messages
     useEffect(() => {
-        if (!groupId) return;
+        if (!groupId || !userData?.uid) return;
 
         const messagesRef = getMessageCollectionPath();
 
         const unsubscribe = messagesRef
             .orderBy('timestamp', 'desc')
-            .onSnapshot((snapshot: any) => {
+            .onSnapshot(async (snapshot: any) => {
                 const messagesData: Message[] = [];
+                const unreadMessageIds: string[] = [];
+                
                 snapshot.forEach((doc: any) => {
-                    messagesData.push({ id: doc.id, ...doc.data() } as Message);
+                    const messageData = { id: doc.id, ...doc.data() } as Message;
+                    messagesData.push(messageData);
+                    
+                    // Check if this message hasn't been read by current user
+                    if (messageData.senderId !== userData.uid && 
+                        (!messageData.readBy || !messageData.readBy.includes(userData.uid))) {
+                        unreadMessageIds.push(doc.id);
+                    }
                 });
+                
                 setMessages(messagesData);
+                
+                // Mark unread messages as read
+                if (unreadMessageIds.length > 0) {
+                    await markMessagesAsRead(unreadMessageIds);
+                }
             });
 
         return () => unsubscribe();
-    }, [groupId, innerGroupId]);
+    }, [groupId, innerGroupId, userData?.uid, getMessageCollectionPath, markMessagesAsRead]);
 
     // Check time restrictions on component mount and every minute
     useEffect(() => {
@@ -315,6 +354,41 @@ export default function GroupChatPage() {
             updateOnlineStatus(false);
         };
     }, [userData?.uid]);
+
+    // Mark all messages as read when user enters the chat
+    useEffect(() => {
+        if (!userData?.uid || !groupId) return;
+
+        const markAllMessagesAsRead = async () => {
+            try {
+                const messagesRef = getMessageCollectionPath();
+                const snapshot = await messagesRef
+                    .where('senderId', '!=', userData.uid)
+                    .get();
+
+                const unreadMessageIds: string[] = [];
+                snapshot.forEach((doc) => {
+                    const messageData = doc.data();
+                    if (!messageData.readBy || !messageData.readBy.includes(userData.uid)) {
+                        unreadMessageIds.push(doc.id);
+                    }
+                });
+
+                if (unreadMessageIds.length > 0) {
+                    await markMessagesAsRead(unreadMessageIds);
+                }
+            } catch (error) {
+                console.error('Error marking all messages as read:', error);
+            }
+        };
+
+        // Mark messages as read after a short delay to ensure messages are loaded
+        const timeoutId = setTimeout(markAllMessagesAsRead, 1000);
+
+        return () => {
+            clearTimeout(timeoutId);
+        };
+    }, [userData?.uid, groupId, getMessageCollectionPath, markMessagesAsRead]);
 
     // Handle text input changes for typing indicator
     const handleTextChange = (text: string) => {
@@ -943,36 +1017,12 @@ export default function GroupChatPage() {
         }
     };
 
-    const deleteMessage = async (message: Message) => {
-        Alert.alert(
-            'Delete Message',
-            'Are you sure you want to delete this message?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            const messagesRef = getMessageCollectionPath();
-                            await messagesRef
-                                .doc(message.id)
-                                .delete();
-
-                            showCustomAlert('Success', 'Message deleted!', 'success');
-                        } catch (error) {
-                            console.error('Error deleting message:', error);
-                            showCustomAlert('Error', 'Failed to delete message', 'error');
-                        }
-                    },
-                },
-            ]
-        );
-    };
 
     const replyToMessage = (message: Message) => {
         setReplyingTo(message);
     };
+
+
 
     const showCustomAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning', onConfirm?: () => void) => {
         setCustomAlert({
@@ -1004,6 +1054,47 @@ export default function GroupChatPage() {
         requestAnimationFrame(() => {
             animatePopupIn();
         });
+    };
+
+    const handleShowSeenByModal = async (message: Message) => {
+        setSelectedMessageForSeenBy(message);
+        setShowSeenByModal(true);
+        
+        try {
+            // Get the list of user IDs who have read the message
+            const readByUserIds = message.readBy || [];
+            
+            if (readByUserIds.length === 0) {
+                setSeenByUsers([]);
+                return;
+            }
+
+            // Fetch user details for each user who has read the message
+            const userPromises = readByUserIds.map(async (userId: string) => {
+                try {
+                    const userDoc = await firestore.collection('users').doc(userId).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        return {
+                            uid: userId,
+                            displayName: userData?.displayName || 'Unknown User',
+                            readAt: message.readAt || message.timestamp // Use readAt if available, otherwise use message timestamp
+                        };
+                    }
+                    return null;
+                } catch (error) {
+                    console.error('Error fetching user data:', error);
+                    return null;
+                }
+            });
+
+            const users = await Promise.all(userPromises);
+            const validUsers = users.filter(user => user !== null) as {uid: string, displayName: string, readAt: any}[];
+            setSeenByUsers(validUsers);
+        } catch (error) {
+            console.error('Error fetching seen by users:', error);
+            setSeenByUsers([]);
+        }
     };
 
     const handleMediaPress = (message: Message) => {
@@ -1418,7 +1509,7 @@ export default function GroupChatPage() {
                         }
                     ]}>
                         <View style={[styles.inputWrapper, {
-                            backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+                            backgroundColor: theme.isDark ? 'rgb(52, 73, 94)' : 'rgb(255, 255, 255)',
                             borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
                         }]}>
                             {/* Media Button */}
@@ -1657,6 +1748,72 @@ export default function GroupChatPage() {
                     onClose={hideCustomAlert}
                 />
 
+                {/* Seen By Modal */}
+                <Modal
+                    visible={showSeenByModal}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowSeenByModal(false)}
+                >
+                    <View style={styles.seenByModalOverlay}>
+                        <View style={[styles.seenByModalContent, { backgroundColor: theme.colors.surface }]}>
+                            <View style={styles.seenByModalHeader}>
+                                <Text style={[styles.seenByModalTitle, { color: theme.colors.text }]}>
+                                    Seen By
+                                </Text>
+                                <TouchableOpacity
+                                    onPress={() => setShowSeenByModal(false)}
+                                    style={styles.seenByModalCloseButton}
+                                >
+                                    <Ionicons name="close" size={24} color={theme.colors.text} />
+                                </TouchableOpacity>
+                            </View>
+                            
+                            <View style={styles.seenByModalBody}>
+                                {seenByUsers.length === 0 ? (
+                                    <View style={styles.seenByEmptyState}>
+                                        <Ionicons name="eye-off-outline" size={48} color={theme.colors.textSecondary} />
+                                        <Text style={[styles.seenByEmptyText, { color: theme.colors.textSecondary }]}>
+                                            No one has read this message yet
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <FlatList
+                                        data={seenByUsers}
+                                        keyExtractor={(item) => item.uid}
+                                        renderItem={({ item }) => (
+                                            <View style={[styles.seenByUserItem, { borderBottomColor: theme.colors.border }]}>
+                                                <View style={styles.seenByUserInfo}>
+                                                    <LinearGradient
+                                                        colors={getAvatarGradient(item.displayName) as [string, string]}
+                                                        style={styles.seenByUserAvatar}
+                                                        start={{ x: 0, y: 0 }}
+                                                        end={{ x: 1, y: 1 }}
+                                                    >
+                                                        <Text style={styles.seenByUserAvatarText}>
+                                                            {item.displayName.charAt(0).toUpperCase()}
+                                                        </Text>
+                                                    </LinearGradient>
+                                                    <View style={styles.seenByUserDetails}>
+                                                        <Text style={[styles.seenByUserName, { color: theme.colors.text }]}>
+                                                            {item.displayName}
+                                                        </Text>
+                                                        <Text style={[styles.seenByUserTime, { color: theme.colors.textSecondary }]}>
+                                                            {item.readAt ? new Date(item.readAt.toDate()).toLocaleString() : 'Unknown time'}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                                            </View>
+                                        )}
+                                        showsVerticalScrollIndicator={false}
+                                    />
+                                )}
+                            </View>
+                        </View>
+                    </View>
+                </Modal>
+
                 {/* Action Sheet Modal */}
                 <Modal
                     visible={showActionSheet}
@@ -1812,25 +1969,25 @@ export default function GroupChatPage() {
                                             </View>
                                         </TouchableOpacity>
 
-                                        {/* Delete Option - Available for all messages */}
+                                        {/* Seen By Option - Available for all messages */}
                                         <TouchableOpacity
                                             style={[styles.actionPopupButton, { borderBottomColor: theme.colors.border }]}
                                             onPress={() => {
-                                                deleteMessage(selectedMessageForActions);
+                                                handleShowSeenByModal(selectedMessageForActions);
                                                 animatePopupOut();
                                             }}
                                             activeOpacity={0.7}
                                         >
                                             <View style={styles.actionPopupButtonContent}>
-                                                <Text style={[styles.actionPopupButtonText, { color: '#F44336' }]}>
-                                                    Delete
+                                                <Text style={[styles.actionPopupButtonText, { color: theme.colors.text }]}>
+                                                    Seen By
                                                 </Text>
                                             </View>
-                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                                            <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(33, 150, 243, 0.1)' }]}>
                                                 <Ionicons
-                                                    name="trash-outline"
+                                                    name="eye-outline"
                                                     size={18}
-                                                    color="#F44336"
+                                                    color={theme.colors.primary}
                                                 />
                                             </View>
                                         </TouchableOpacity>
@@ -2596,6 +2753,91 @@ const styles = StyleSheet.create({
         borderRadius: 3,
         marginHorizontal: 2,
         opacity: 0.7,
+    },
+
+    // Seen By Modal styles
+    seenByModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    seenByModalContent: {
+        width: '90%',
+        maxHeight: '70%',
+        borderRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    seenByModalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    },
+    seenByModalTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+    },
+    seenByModalCloseButton: {
+        padding: 4,
+    },
+    seenByModalBody: {
+        maxHeight: 400,
+    },
+    seenByEmptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+        paddingHorizontal: 20,
+    },
+    seenByEmptyText: {
+        fontSize: 16,
+        marginTop: 12,
+        textAlign: 'center',
+    },
+    seenByUserItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+    },
+    seenByUserInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    seenByUserAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    seenByUserAvatarText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#000',
+    },
+    seenByUserDetails: {
+        flex: 1,
+    },
+    seenByUserName: {
+        fontSize: 16,
+        fontWeight: '500',
+        marginBottom: 2,
+    },
+    seenByUserTime: {
+        fontSize: 12,
     },
 
 });

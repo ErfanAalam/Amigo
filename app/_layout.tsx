@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { CallManager } from "../components/CallManager";
 import { NotificationHandler } from "../components/NotificationHandler";
 import { AuthProvider, useAuth } from "../context/AuthContext";
+import { CallStatusProvider } from "../context/CallStatusContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
@@ -58,15 +59,17 @@ export default function RootLayout() {
     <SafeAreaProvider>  
     <ThemeProvider>
       <AuthProvider>
-        <NotificationProvider>
-          <NotificationHandler>
-            <CallManager>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <RootLayoutNav />
-              </GestureHandlerRootView>
-            </CallManager>
-          </NotificationHandler>
-        </NotificationProvider>
+        <CallStatusProvider>
+          <NotificationProvider>
+            <NotificationHandler>
+              <CallManager>
+                <GestureHandlerRootView style={{ flex: 1 }}>
+                  <RootLayoutNav />
+                </GestureHandlerRootView>
+              </CallManager>
+            </NotificationHandler>
+          </NotificationProvider>
+        </CallStatusProvider>
       </AuthProvider>
     </ThemeProvider>
     </SafeAreaProvider>

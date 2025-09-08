@@ -20,41 +20,41 @@ export class NotificationService {
    */
   async requestPermissionsAndGetToken(userId: string): Promise<string | null> {
     try {
-      console.log('🔐 Starting notification permission request for user:', userId);
+      
       
       // Check current permission status
       const authStatus = await messaging().hasPermission();
-      console.log('📱 Current permission status:', authStatus);
+      
 
       let finalStatus = authStatus;
 
       // If permission is not granted, request it
       if (authStatus === messaging.AuthorizationStatus.DENIED) {
-        console.log('📝 Requesting notification permission...');
+        
         const requestResult = await messaging().requestPermission();
         finalStatus = requestResult;
-        console.log('📱 Permission request result:', requestResult);
+        
       }
 
       // Check if permission was granted
       if (finalStatus === messaging.AuthorizationStatus.AUTHORIZED || 
           finalStatus === messaging.AuthorizationStatus.PROVISIONAL) {
         
-        console.log('✅ Permission granted, getting FCM token...');
+        
         
         // Get the token
         const token = await messaging().getToken();
         this.fcmToken = token;
         
-        console.log('🔑 FCM Token received, length:', token.length);
-        console.log('🔑 FCM Token preview:', token.substring(0, 20) + '...');
+        
+        
         
         // Save token to user's document in Firestore
         await this.saveTokenToFirestore(userId, token);
         
         return token;
       } else {
-        console.log('❌ Permission denied or not determined');
+        
         
         // Show alert to guide user to settings
         if (Platform.OS === 'ios') {
@@ -97,7 +97,7 @@ export class NotificationService {
     if (Platform.OS === 'ios') {
       // For iOS, we can't programmatically open settings
       // The user will need to do it manually
-      console.log('Please open Settings > Notifications > Amigo manually');
+      
     }
   }
 
@@ -106,23 +106,23 @@ export class NotificationService {
    */
   private async saveTokenToFirestore(userId: string, token: string): Promise<void> {
     try {
-      console.log('💾 Saving FCM token to Firestore...');
-      console.log('👤 User ID:', userId);
-      console.log('🔑 Token length:', token.length);
-      console.log('🔑 Token preview:', token.substring(0, 20) + '...');
+      
+      
+      
+      
       
       await firebaseFirestore.collection('users').doc(userId).update({
         fcmToken: token,
         pushTokenUpdatedAt: new Date(),
       });
-      console.log('✅ FCM token saved to Firestore successfully');
+      
       
       // Verify the token was saved
       const userDoc = await firebaseFirestore.collection('users').doc(userId).get();
       if (userDoc.exists) {
         const userData = userDoc.data();
-        console.log('🔍 Verification - FCM token in Firestore:', !!userData?.fcmToken);
-        console.log('🔍 Verification - Token length in Firestore:', userData?.fcmToken?.length || 0);
+        
+        
       }
     } catch (error) {
       console.error('❌ Error saving FCM token to Firestore:', error);
@@ -140,7 +140,7 @@ export class NotificationService {
         pushTokenUpdatedAt: new Date(),
       });
       this.fcmToken = null;
-      console.log('FCM token removed from Firestore');
+      
     } catch (error) {
       console.error('Error removing FCM token from Firestore:', error);
     }
@@ -153,7 +153,7 @@ export class NotificationService {
     try {
       // For local notifications, we'll use a simple approach
       // You can implement this using react-native-toast-message or similar
-      console.log('Local notification:', { title, body, data });
+      
       
       // Show a simple alert for testing
       Alert.alert(title, body, [{ text: 'OK' }]);
@@ -174,31 +174,31 @@ export class NotificationService {
    */
   async debugNotificationSetup(userId: string): Promise<void> {
     try {
-      console.log('🔍 === NOTIFICATION DEBUG START ===');
+      
       
       // Check permissions
       const authStatus = await messaging().hasPermission();
-      console.log('📱 Permission status:', authStatus);
+      
       
       // Check FCM token
       const token = await messaging().getToken();
-      console.log('🔑 FCM Token exists:', !!token);
-      console.log('🔑 FCM Token length:', token ? token.length : 0);
-      console.log('🔑 FCM Token preview:', token ? token.substring(0, 30) + '...' : 'No token');
+      
+      
+      
       
       // Check Firestore user document
       const userDoc = await firebaseFirestore.collection('users').doc(userId).get();
       if (userDoc.exists) {
         const userData = userDoc.data();
-        console.log('👤 User document exists:', !!userData);
-        console.log('🔑 FCM Token in Firestore:', !!userData?.fcmToken);
-        console.log('🔑 FCM Token length in Firestore:', userData?.fcmToken ? userData.fcmToken.length : 0);
-        console.log('📊 User data keys:', Object.keys(userData || {}));
+        
+        
+        
+        
       } else {
-        console.log('❌ User document does not exist in Firestore');
+        
       }
       
-      console.log('🔍 === NOTIFICATION DEBUG END ===');
+      
     } catch (error) {
       console.error('❌ Error in notification debug:', error);
     }
@@ -213,7 +213,7 @@ export class NotificationService {
       const enabled = authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
                      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
       
-      console.log('Checking notification permissions:', authStatus, 'Enabled:', enabled);
+      
       return enabled;
     } catch (error) {
       console.error('Error checking notification permissions:', error);
@@ -227,22 +227,22 @@ export class NotificationService {
   setupNotificationListeners() {
     // Handle background messages
     messaging().setBackgroundMessageHandler(async remoteMessage => {
-      console.log('📱 Message handled in the background!', remoteMessage);
+      
       
       // Handle call notifications in background
       if (remoteMessage.data?.type === 'call') {
-        console.log('📞 Call notification received in background:', remoteMessage.data);
+        
         // The notification will be handled by the system when user taps it
       }
     });
 
     // Handle foreground messages
     const unsubscribe = messaging().onMessage(async remoteMessage => {
-      console.log('📱 A new FCM message arrived!', remoteMessage);
+      
       
       // Handle call notifications in foreground
       if (remoteMessage.data?.type === 'call') {
-        console.log('📞 Call notification received in foreground:', remoteMessage.data);
+        
         // For call notifications, we might want to show a custom in-app notification
         // or let the existing CallManager handle it
       }
@@ -258,7 +258,7 @@ export class NotificationService {
     try {
       const remoteMessage = await messaging().getInitialNotification();
       if (remoteMessage) {
-        console.log('Notification caused app to open:', remoteMessage);
+        
         
         // Extract navigation data from notification
         const navigationData = this.extractNavigationData(remoteMessage);
@@ -324,7 +324,7 @@ export class NotificationService {
       const navigationData = this.extractNavigationData(remoteMessage);
       
       if (navigationData) {
-        console.log('Navigation data extracted:', navigationData);
+        
         // You can emit an event here or use a callback to handle navigation
         // For now, we'll just log it
         return navigationData;

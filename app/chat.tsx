@@ -27,6 +27,7 @@ import CustomAlert from '../components/CustomAlert';
 import DocumentViewer from '../components/DocumentViewer';
 import MediaMessage from '../components/MediaMessage';
 import MediaPicker from '../components/MediaPicker';
+import { OngoingCallIndicator } from '../components/OngoingCallIndicator';
 import PDFViewer from '../components/PDFViewer';
 import VideoPlayer from '../components/VideoPlayer';
 import VoiceRecorder from '../components/VoiceRecorder';
@@ -188,7 +189,7 @@ export default function ChatPage() {
       // For initial load, always assume there might be more messages
       // Only set to false when we actually get an empty result from pagination
       const hasMore = messageList.length > 0; // If we got any messages, there might be more
-      console.log('Initial load - messageList.length:', messageList.length, 'hasMore:', hasMore);
+      
       setHasMoreMessages(hasMore);
       setInitialLoading(false);
 
@@ -216,23 +217,16 @@ export default function ChatPage() {
 
   // Load older messages for pagination
   const loadOlderMessages = useCallback(async () => {
-    console.log('loadOlderMessages called', {
-      chatId: !!chatId,
-      userData: !!userData?.uid,
-      hasMoreMessages,
-      loadingOlderMessages,
-      lastMessageTimestamp: !!lastMessageTimestamp,
-      currentMessageCount: messages.length
-    });
+
 
     if (!chatId || !userData?.uid || !hasMoreMessages || loadingOlderMessages || !lastMessageTimestamp) {
-      console.log('loadOlderMessages: Early return due to conditions');
+      
       return;
     }
 
     try {
       setLoadingOlderMessages(true);
-      console.log('Loading older messages from timestamp:', lastMessageTimestamp);
+      
       
       const olderMessagesQuery = await firestore
         .collection('chats')
@@ -243,10 +237,10 @@ export default function ChatPage() {
         .limit(15)
         .get();
 
-      console.log('Older messages query result:', olderMessagesQuery.size, 'messages');
+      
 
       if (olderMessagesQuery.empty) {
-        console.log('No more older messages found');
+        
         setHasMoreMessages(false);
         setLoadingOlderMessages(false);
         return;
@@ -263,26 +257,26 @@ export default function ChatPage() {
         }
       });
 
-      console.log('Filtered older messages:', olderMessages.length);
+      
 
       // Append older messages to existing ones
       setMessages(prevMessages => {
         const updatedMessages = [...prevMessages, ...olderMessages];
-        console.log('Total messages after loading older:', updatedMessages.length);
+        
         return updatedMessages;
       });
       
       // Update timestamp for next pagination
       if (olderMessages.length > 0) {
         const newTimestamp = olderMessages[olderMessages.length - 1].timestamp?.toDate() || null;
-        console.log('Updated lastMessageTimestamp:', newTimestamp);
+        
         setLastMessageTimestamp(newTimestamp);
       }
       
       // Set hasMoreMessages based on whether we got a full batch
       // If we got fewer than 15 messages, there are no more messages
       const hasMore = olderMessages.length >= 15;
-      console.log('Older messages load - olderMessages.length:', olderMessages.length, 'hasMore:', hasMore);
+      
       setHasMoreMessages(hasMore);
       setLoadingOlderMessages(false);
     } catch (error) {
@@ -567,29 +561,22 @@ export default function ChatPage() {
       const uploadPromises = mediaFiles.map(async (mediaFile) => {
         const mediaUrl = await uploadMediaToStorage(mediaFile);
 
-        // Debug logging
-        // console.log('MediaFile details:', {
-        //   name: mediaFile.name,
-        //   type: mediaFile.type,
-        //   size: mediaFile.size
-        // });
-
         // Determine message type
         let messageType: Message['messageType'] = 'document';
         if (mediaFile.type.startsWith('image/')) {
           messageType = 'image';
-          // console.log('✅ Detected as IMAGE');
+          // 
         } else if (mediaFile.type.startsWith('video/')) {
           messageType = 'video';
-          // console.log('✅ Detected as VIDEO');
+          // 
         } else if (mediaFile.type.startsWith('audio/')) {
           messageType = 'audio';
-          // console.log('✅ Detected as AUDIO');
+          // 
         } else {
-          console.log('❌ Defaulting to DOCUMENT, type was:', mediaFile.type);
+          
         }
 
-        // console.log('Final messageType:', messageType);
+        // 
 
         return {
           messageType,
@@ -609,7 +596,7 @@ export default function ChatPage() {
           Object.entries(mediaData).filter(([_, value]) => value !== undefined)
         );
 
-        // console.log('Clean media data for Firebase:', cleanMediaData);
+        // 
 
         return firestore
           .collection('chats')
@@ -662,7 +649,7 @@ export default function ChatPage() {
           chatId, // chat ID
           lastMediaFile.messageType // message type
         );
-        console.log('Push notification sent for media message');
+        
       } catch (notificationError) {
         console.error('Error sending push notification for media:', notificationError);
         // Don't fail the media sending if notification fails
@@ -752,7 +739,7 @@ export default function ChatPage() {
           chatId, // chat ID
           'voice' // message type
         );
-        console.log('Push notification sent for voice note');
+        
       } catch (notificationError) {
         console.error('Error sending push notification for voice note:', notificationError);
         // Don't fail the voice note sending if notification fails
@@ -1169,7 +1156,7 @@ export default function ChatPage() {
           chatId, // chat ID
           'text' // message type
         );
-        console.log('Push notification sent for text message');
+        
       } catch (notificationError) {
         console.error('Error sending push notification:', notificationError);
         // Don't fail the message sending if notification fails
@@ -1286,10 +1273,10 @@ export default function ChatPage() {
       ]}>
         <TouchableOpacity
           onLongPress={() => showMessageActions(item)}
-          onPress={() => {
-            showMessageActions(item);
-            // Simple tap action - could be used for other features
-          }}
+          // onPress={() => {
+          //   showMessageActions(item);
+          //   // Simple tap action - could be used for other features
+          // }}
           style={styles.messageWrapper}
           activeOpacity={0.8}
         >
@@ -1508,14 +1495,17 @@ export default function ChatPage() {
               </View>
 
               {/* Call Button */}
+              {
+                userData.callAccess &&
               <CallButton
-                receiverId={userId}
-                receiverName={userName}
-                receiverPhone={userPhone}
-                size="medium"
-                variant="ghost"
-                style={styles.headerCallButton}
+              receiverId={userId}
+              receiverName={userName}
+              receiverPhone={userPhone}
+              size="medium"
+              variant="ghost"
+              style={styles.headerCallButton}
               />
+            }
               </View>
             
             </View>
@@ -1561,6 +1551,9 @@ export default function ChatPage() {
           </TouchableOpacity>
         )}
 
+        {/* Ongoing Call Indicator */}
+        <OngoingCallIndicator />
+
         {/* Messages and Input with proper keyboard handling */}
         <KeyboardAvoidingView
           style={styles.chatBody}
@@ -1584,7 +1577,7 @@ export default function ChatPage() {
               keyboardShouldPersistTaps="handled"
               maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
               onEndReached={() => {
-                console.log('onEndReached triggered - attempting to load older messages');
+                
                 loadOlderMessages();
               }}
               onEndReachedThreshold={0.1} // Reduced threshold for better pagination trigger
@@ -1593,7 +1586,7 @@ export default function ChatPage() {
                 const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
                 const isAtBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 50;
                 if (isAtBottom && hasMoreMessages && !loadingOlderMessages) {
-                  console.log('Scrolled to bottom - loading older messages');
+                  
                   loadOlderMessages();
                 }
               }}
@@ -1729,7 +1722,7 @@ export default function ChatPage() {
             }
           ]}>
             <View style={[styles.inputWrapper, {
-              backgroundColor: theme.isDark ? 'rgba(52, 73, 94, 0.6)' : 'rgb(255, 255, 255)',
+              backgroundColor: theme.isDark ? 'rgb(52, 73, 94)' : 'rgb(255, 255, 255)',
               borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
             }]}>
               {/* Media Button */}
@@ -1768,7 +1761,7 @@ export default function ChatPage() {
                 ]}
                 value={newMessage}
                 onChangeText={handleTextChange}
-                placeholder="Type a message..."
+                placeholder="Message.."
                 placeholderTextColor={theme.colors.inputPlaceholder}
                 multiline
                 maxLength={1000}
@@ -2452,7 +2445,7 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     borderRadius: 28,
     paddingHorizontal: 6,
     paddingVertical: 6,
@@ -2481,7 +2474,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     fontWeight: '400',
-    maxHeight: 120,
+    maxHeight: 60,
     minHeight: 24,
     lineHeight: 20,
   },
